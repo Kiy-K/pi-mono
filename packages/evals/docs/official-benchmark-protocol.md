@@ -34,9 +34,10 @@ a clean holdout. [[TB 2.1 release](https://www.tbench.ai/news/terminal-bench-2-1
   [`df89f994623a0a6a57229103b6fe910766693c30`](https://github.com/datacurve-ai/pier/tree/df89f994623a0a6a57229103b6fe910766693c30).
 - There is no official development/test split. Official results cover the full
   113-task corpus; deterministic seeded subsets are supported for local runs.
-- This fork excludes the quarantined `abs-module-cache-flags` task because its
-  hidden verifier was inspected during protocol research. Local results therefore
-  cover at most 112 tasks and must not be reported as an official full-corpus score.
+- This fork excludes `abs-module-cache-flags` and
+  `optique-conditional-option-dependencies` because hidden verifier material was
+  exposed during protocol work. Local results therefore cover at most 111 tasks
+  and must not be reported as an official full-corpus score.
 - License: Apache-2.0 for Datacurve's task specifications, verifiers, and
   curation. Upstream repository code retains its own license; the official
   provenance file lists each one.
@@ -81,8 +82,9 @@ Additional controls for this comparison:
    until both treatments for a scored task are immutable.
 6. Never turn a task-specific observation into production logic. Preserve a
    pre-registered holdout and make acceptance decisions on aggregate behavior.
-7. Quarantine `abs-module-cache-flags` from scored results: its hidden verifier
-   was inspected while preparing this protocol.
+7. Quarantine `abs-module-cache-flags` and
+   `optique-conditional-option-dependencies` from scored results: hidden verifier
+   material was exposed while preparing and debugging this protocol.
 
 Public availability still creates future retrieval and pretraining risk. The
 no-network task phase and unpublished upstream solutions reduce, but cannot

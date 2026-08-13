@@ -235,6 +235,11 @@ class PiAgentIsolationTest(unittest.IsolatedAsyncioTestCase):
             await agent.run(instruction, environment, context)  # type: ignore[arg-type]
 
             self.assertEqual(
+                environment.commands[0][0],
+                "mkdir -p /installed-agent/config /logs/artifacts && "
+                "chmod 777 /logs/artifacts",
+            )
+            self.assertEqual(
                 environment.uploads,
                 [
                     "/installed-agent/pi",

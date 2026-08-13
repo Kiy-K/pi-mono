@@ -8,17 +8,18 @@
   "splitSeed": "pi-harness-v1",
   "splitMethod": "ascending sha256(splitSeed + ':' + taskName)",
   "quarantined": [
-    "abs-module-cache-flags"
+    "abs-module-cache-flags",
+    "optique-conditional-option-dependencies"
   ],
   "development": [
-    "optique-conditional-option-dependencies",
     "pest-character-class-coalescing",
     "httpx-streaming-json-iteration",
     "goreleaser-retry-publish-auditing",
     "httpx-deterministic-cookie-store",
     "clack-async-autocomplete-options",
     "ytt-jsonpath-query-api",
-    "vitest-duration-sharding"
+    "vitest-duration-sharding",
+    "langchain-request-coalescing"
   ],
   "holdout": [
     "fastapi-deprecation-response-headers",
