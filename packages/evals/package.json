@@ -5,6 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"clean": "shx rm -rf .eval",
+		"diagnostics": "node scripts/diagnostics.mjs",
 		"eval": "node scripts/run-evals.mjs",
 		"test": "vitest run --config vitest.test.config.ts"
 	},

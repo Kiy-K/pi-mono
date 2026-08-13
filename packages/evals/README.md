@@ -151,3 +151,25 @@ necessary, use Vitest's built-in sequence shuffling.
 
 See the [`skill-eval-harness`](https://github.com/adewale/skill-eval-harness/) guidance for comparative-eval methodology,
 repetition strategy, trustworthy judges, and telemetry interpretation.
+
+## Stock-vs-Improved diagnostics
+
+The diagnostic runner keeps provider traffic in the Pi host process and exposes only a fail-closed, networkless
+bubblewrap `bash` tool to the model. Task verifiers remain outside model-visible workspaces. Run the isolation test before
+spending model tokens, then compare a frozen stock checkout with the current checkout:
+
+```bash
+cd packages/evals
+node "$(git rev-parse --show-toplevel)/node_modules/vitest/dist/cli.js" \
+  --run --config vitest.test.config.ts test/tool-isolation.test.ts test/diagnostics.test.ts
+cd ../..
+npm run --workspace @earendil-works/pi-evals diagnostics -- run \
+  --stock-repo /tmp/pi-stock-581d75a89cea21e50d6a26df840352f94427f633 \
+  --improved-repo "$PWD" \
+  --model openai-codex/gpt-5.6-luna \
+  --thinking medium \
+  --split development
+```
+
+Raw events, stderr, workspaces, and summaries are written under ignored `.eval/diagnostics/`. A compact complete record
+is appended to `EXPERIMENTS.jsonl`; it includes failures and missing telemetry rather than silently dropping them.

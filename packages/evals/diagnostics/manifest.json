@@ -1,0 +1,26 @@
+{
+	"schemaVersion": 1,
+	"tasks": [
+		{
+			"id": "inclusive-range",
+			"split": "development",
+			"fixture": "tasks/inclusive-range",
+			"verifier": "verifiers/inclusive-range.py",
+			"prompt": "Fix the bug in this repository. Preserve the public API and run the available tests."
+		},
+		{
+			"id": "falsy-cache",
+			"split": "development",
+			"fixture": "tasks/falsy-cache",
+			"verifier": "verifiers/falsy-cache.py",
+			"prompt": "Fix the bug in this repository. Preserve the public API and run the available tests."
+		},
+		{
+			"id": "config-precedence",
+			"split": "holdout",
+			"fixture": "tasks/config-precedence",
+			"verifier": "verifiers/config-precedence.py",
+			"prompt": "Fix the bug in this repository. Preserve the public API and run the available tests."
+		}
+	]
+}
