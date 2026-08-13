@@ -43,9 +43,14 @@ const bashSchema = Type.Object({
 	timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional, no default timeout)" })),
 });
 
+const BASH_COMMAND_RECOVERY_GUIDELINE =
+	"After a failed command, verify its intended effect before continuing; passing checks do not prove earlier steps ran.";
+const BASH_SESSION_ENVIRONMENT_GUIDELINE =
+	"You can inspect PI_* environment variables for current model and session details.";
+
 export const bashToolSystemPromptContribution = {
 	snippet: "Execute bash commands (ls, grep, find, etc.)",
-	guidelines: ["You can inspect PI_* environment variables for current model and session details."],
+	guidelines: [BASH_COMMAND_RECOVERY_GUIDELINE, BASH_SESSION_ENVIRONMENT_GUIDELINE],
 } as const;
 
 export type BashToolInput = Static<typeof bashSchema>;
@@ -332,7 +337,9 @@ export function createBashToolDefinition(
 		label: "bash",
 		description: `Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.`,
 		promptSnippet: bashToolSystemPromptContribution.snippet,
-		promptGuidelines: exposeSessionEnvironment ? [...bashToolSystemPromptContribution.guidelines] : undefined,
+		promptGuidelines: exposeSessionEnvironment
+			? [...bashToolSystemPromptContribution.guidelines]
+			: [BASH_COMMAND_RECOVERY_GUIDELINE],
 		parameters: bashSchema,
 		constrainedSampling: getExperimentalToolSampling(),
 		async execute(
