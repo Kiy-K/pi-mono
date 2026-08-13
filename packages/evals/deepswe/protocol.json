@@ -1,0 +1,33 @@
+{
+  "benchmark": "datacurve/deep-swe-1-1",
+  "benchmarkCommit": "435ee89ec2f2e2289f33b0da4f992f0b7b7266b9",
+  "pierVersion": "0.3.1",
+  "pierCommit": "df89f994623a0a6a57229103b6fe910766693c30",
+  "model": "openai-codex/gpt-5.6-luna",
+  "reasoningEffort": "medium",
+  "splitSeed": "pi-harness-v1",
+  "splitMethod": "ascending sha256(splitSeed + ':' + taskName)",
+  "quarantined": [
+    "abs-module-cache-flags"
+  ],
+  "development": [
+    "optique-conditional-option-dependencies",
+    "pest-character-class-coalescing",
+    "httpx-streaming-json-iteration",
+    "goreleaser-retry-publish-auditing",
+    "httpx-deterministic-cookie-store",
+    "clack-async-autocomplete-options",
+    "ytt-jsonpath-query-api",
+    "vitest-duration-sharding"
+  ],
+  "holdout": [
+    "fastapi-deprecation-response-headers",
+    "dateutil-rfc5545-timezone-interop",
+    "dasel-html-document-format",
+    "skrub-duration-encoding",
+    "vulture-persistent-analysis-cache",
+    "arcane-drift-detection-baselines",
+    "psd-tools-blend-range-api",
+    "returns-validated-error-accumulation"
+  ]
+}
