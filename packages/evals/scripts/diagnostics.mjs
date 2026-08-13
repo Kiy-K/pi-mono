@@ -216,10 +216,27 @@ async function gitCommit(repository) {
 	return result.stdout.trim();
 }
 
+export async function prepareWorkspace(fixture, workspace) {
+	await mkdir(dirname(workspace), { recursive: true });
+	await cp(fixture, workspace, { recursive: true });
+	const env = {
+		...process.env,
+		GIT_AUTHOR_DATE: "2000-01-01T00:00:00Z",
+		GIT_COMMITTER_DATE: "2000-01-01T00:00:00Z",
+	};
+	for (const args of [
+		["init", "--quiet", "--initial-branch=main"],
+		["add", "."],
+		["-c", "user.name=Pi Eval", "-c", "user.email=pi-eval@example.invalid", "-c", "commit.gpgSign=false", "commit", "--quiet", "-m", "Initial task"],
+	]) {
+		const result = await runProcess("git", args, { cwd: workspace, env, timeoutMs: 10_000 });
+		if (result.exitCode !== 0) throw new Error(`Cannot prepare task workspace: git ${args[0]} failed: ${result.stderr}`);
+	}
+}
+
 async function runTreatment({ name, repository, task, repetition, runRoot, supportExtension, model, thinking, timeoutMs }) {
 	const workspace = join(runRoot, task.id, String(repetition), name, "workspace");
-	await mkdir(dirname(workspace), { recursive: true });
-	await cp(resolve(packageRoot, "diagnostics", task.fixture), workspace, { recursive: true });
+	await prepareWorkspace(resolve(packageRoot, "diagnostics", task.fixture), workspace);
 	const invocation = buildPiInvocation({ repository, workspace, extension: supportExtension, model, thinking, prompt: task.prompt });
 	const processResult = await runProcess(invocation.command, invocation.args, { cwd: invocation.cwd, timeoutMs });
 	const telemetry = parsePiEvents(processResult.stdout);

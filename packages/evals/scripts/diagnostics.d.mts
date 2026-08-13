@@ -40,6 +40,8 @@ export function parsePiEvents(stdout: string): {
 	finalError?: string;
 };
 
+export function prepareWorkspace(fixture: string, workspace: string): Promise<void>;
+
 export function runVerifier(
 	verifier: string,
 	workspace: string,

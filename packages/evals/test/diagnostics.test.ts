@@ -1,10 +1,19 @@
+import { execFile } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildPiInvocation, parsePiEvents, runVerifier, validateManifest } from "../scripts/diagnostics.mjs";
+import {
+	buildPiInvocation,
+	parsePiEvents,
+	prepareWorkspace,
+	runVerifier,
+	validateManifest,
+} from "../scripts/diagnostics.mjs";
 
 const roots: string[] = [];
+const execFileAsync = promisify(execFile);
 
 afterEach(async () => {
 	await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -45,6 +54,24 @@ it("keeps treatment settings identical except for repository and result identity
 	expect(stock.cwd).toBe(improved.cwd);
 	expect(stock.command).toBe("/tmp/stock/pi-test.sh");
 	expect(improved.command).toBe("/tmp/improved/pi-test.sh");
+});
+
+it("prepares each task as a clean committed Git repository", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-diagnostic-workspace-test-"));
+	roots.push(root);
+	const fixture = join(root, "fixture");
+	const workspace = join(root, "workspace");
+	await mkdir(fixture);
+	await writeFile(join(fixture, "bug.py"), "broken = True\n");
+
+	await prepareWorkspace(fixture, workspace);
+
+	const [{ stdout: head }, { stdout: status }] = await Promise.all([
+		execFileAsync("git", ["rev-parse", "HEAD"], { cwd: workspace }),
+		execFileAsync("git", ["status", "--porcelain"], { cwd: workspace }),
+	]);
+	expect(head.trim()).toMatch(/^[0-9a-f]{40}$/);
+	expect(status).toBe("");
 });
 
 it("collects complete usage and reliability telemetry from JSON events", () => {
