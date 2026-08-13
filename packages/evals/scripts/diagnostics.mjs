@@ -234,6 +234,19 @@ export async function prepareWorkspace(fixture, workspace) {
 	}
 }
 
+export async function prepareTreatmentSupport(repository, runId) {
+	const supportRoot = resolve(repository, "packages/evals/.eval/diagnostic-support", runId);
+	await Promise.all([
+		mkdir(join(supportRoot, "extensions"), { recursive: true }),
+		mkdir(join(supportRoot, "src"), { recursive: true }),
+	]);
+	await Promise.all([
+		cp(join(packageRoot, "extensions", "isolated-bash.ts"), join(supportRoot, "extensions", "isolated-bash.ts")),
+		cp(join(packageRoot, "src", "tool-isolation.ts"), join(supportRoot, "src", "tool-isolation.ts")),
+	]);
+	return join(supportRoot, "extensions", "isolated-bash.ts");
+}
+
 async function runTreatment({ name, repository, task, repetition, runRoot, supportExtension, model, thinking, timeoutMs }) {
 	const workspace = join(runRoot, task.id, String(repetition), name, "workspace");
 	await prepareWorkspace(resolve(packageRoot, "diagnostics", task.fixture), workspace);
@@ -247,6 +260,9 @@ async function runTreatment({ name, repository, task, repetition, runRoot, suppo
 	]);
 	return {
 		name,
+		taskId: task.id,
+		split: task.split,
+		repetition,
 		repository,
 		commit: await gitCommit(repository),
 		process: { exitCode: processResult.exitCode, signal: processResult.signal, timedOut: processResult.timedOut, totalMs: processResult.totalMs },
@@ -266,19 +282,22 @@ async function main() {
 	if (tasks.length === 0) throw new Error(`No ${options.split} diagnostic tasks.`);
 	const runId = `${new Date().toISOString().replaceAll(":", "-")}_${randomUUID()}`;
 	const runRoot = resolve(packageRoot, ".eval", "diagnostics", runId);
-	const supportRoot = join(runRoot, "support");
-	await mkdir(join(supportRoot, "extensions"), { recursive: true });
-	await mkdir(join(supportRoot, "src"), { recursive: true });
-	await Promise.all([
-		cp(join(packageRoot, "extensions", "isolated-bash.ts"), join(supportRoot, "extensions", "isolated-bash.ts")),
-		cp(join(packageRoot, "src", "tool-isolation.ts"), join(supportRoot, "src", "tool-isolation.ts")),
-	]);
+	const treatments = await Promise.all(
+		[
+			["stock", resolve(options.stockRepo)],
+			["improved", resolve(options.improvedRepo)],
+		].map(async ([name, repository]) => ({
+			name,
+			repository,
+			supportExtension: await prepareTreatmentSupport(repository, runId),
+		})),
+	);
 	const results = [];
 	for (const task of tasks) {
 		for (let repetition = 1; repetition <= options.repetitions; repetition += 1) {
-			for (const [name, repository] of [["stock", resolve(options.stockRepo)], ["improved", resolve(options.improvedRepo)]]) {
+			for (const { name, repository, supportExtension } of treatments) {
 				console.error(`[diagnostic] ${task.id} repetition=${repetition} treatment=${name}`);
-				results.push(await runTreatment({ name, repository, task, repetition, runRoot, supportExtension: join(supportRoot, "extensions", "isolated-bash.ts"), model: options.model, thinking: options.thinking, timeoutMs: options.timeoutMs }));
+				results.push(await runTreatment({ name, repository, task, repetition, runRoot, supportExtension, model: options.model, thinking: options.thinking, timeoutMs: options.timeoutMs }));
 			}
 		}
 	}

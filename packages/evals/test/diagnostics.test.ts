@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	buildPiInvocation,
 	parsePiEvents,
+	prepareTreatmentSupport,
 	prepareWorkspace,
 	runVerifier,
 	validateManifest,
@@ -72,6 +73,21 @@ it("prepares each task as a clean committed Git repository", async () => {
 	]);
 	expect(head.trim()).toMatch(/^[0-9a-f]{40}$/);
 	expect(status).toBe("");
+});
+
+it("places identical eval support inside each treatment repository", async () => {
+	const repository = await mkdtemp(join(tmpdir(), "pi-diagnostic-support-test-"));
+	roots.push(repository);
+
+	const extension = await prepareTreatmentSupport(repository, "run-1");
+
+	expect(extension).toBe(
+		join(repository, "packages/evals/.eval/diagnostic-support/run-1/extensions/isolated-bash.ts"),
+	);
+	expect(await readFile(extension, "utf8")).toContain("createIsolatedBashOperations");
+	expect(
+		await readFile(join(repository, "packages/evals/.eval/diagnostic-support/run-1/src/tool-isolation.ts"), "utf8"),
+	).toContain('"--unshare-net"');
 });
 
 it("collects complete usage and reliability telemetry from JSON events", () => {

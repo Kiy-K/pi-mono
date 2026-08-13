@@ -42,6 +42,8 @@ export function parsePiEvents(stdout: string): {
 
 export function prepareWorkspace(fixture: string, workspace: string): Promise<void>;
 
+export function prepareTreatmentSupport(repository: string, runId: string): Promise<string>;
+
 export function runVerifier(
 	verifier: string,
 	workspace: string,
