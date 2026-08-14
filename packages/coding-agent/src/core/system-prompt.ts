@@ -102,7 +102,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 
 	// File exploration guidelines
 	if (hasBash && !hasGrep && !hasFind && !hasLs) {
-		addGuideline("Use bash for file operations like ls, grep, find");
+		addGuideline("Use bash for file operations like ls, rg, find");
 	}
 
 	for (const guideline of promptGuidelines ?? []) {
