@@ -106,6 +106,11 @@ uv tool install 'datacurve-pier==0.3.1'
 git clone https://github.com/datacurve-ai/deep-swe.git /tmp/deep-swe-v1.1
 git -C /tmp/deep-swe-v1.1 checkout 435ee89ec2f2e2289f33b0da4f992f0b7b7266b9
 
+# Pier 0.3.1 does not add an SELinux relabel option to its log bind mounts.
+# On SELinux hosts, prepare the external jobs root before running Pier.
+mkdir -p /tmp/pi-deepswe-jobs
+chcon -R -t container_file_t /tmp/pi-deepswe-jobs
+
 # Smoke test one non-quarantined task first.
 pier run -p /tmp/deep-swe-v1.1/tasks/<task-id> \
   --agent-import-path deepswe.pi_agent:PiAgent \
@@ -113,7 +118,7 @@ pier run -p /tmp/deep-swe-v1.1/tasks/<task-id> \
   --ak artifact_path=/abs/path/to/stock/pi \
   --ak auth_path=/abs/path/to/auth.json \
   --ak pi_commit=<stock-commit> --ak reasoning_effort=medium \
-  --env docker
+  --env docker --jobs-dir /tmp/pi-deepswe-jobs
 
 # Full comparison: run each command with the same fixed concurrency and seed.
 pier run -p /tmp/deep-swe-v1.1/tasks \
@@ -122,7 +127,7 @@ pier run -p /tmp/deep-swe-v1.1/tasks \
   --ak artifact_path=/abs/path/to/stock/pi \
   --ak auth_path=/abs/path/to/auth.json \
   --ak pi_commit=<stock-commit> --ak reasoning_effort=medium \
-  --env docker
+  --env docker --jobs-dir /tmp/pi-deepswe-jobs
 
 pier run -p /tmp/deep-swe-v1.1/tasks \
   --agent-import-path deepswe.pi_agent:PiAgent \
@@ -130,7 +135,7 @@ pier run -p /tmp/deep-swe-v1.1/tasks \
   --ak artifact_path=/abs/path/to/improved/pi \
   --ak auth_path=/abs/path/to/auth.json \
   --ak pi_commit=<improved-commit> --ak reasoning_effort=medium \
-  --env docker
+  --env docker --jobs-dir /tmp/pi-deepswe-jobs
 ```
 
 Before the full run, verify the adapter's exact kwargs with `pier run --help`.

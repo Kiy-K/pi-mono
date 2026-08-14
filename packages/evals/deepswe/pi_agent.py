@@ -269,10 +269,7 @@ class PiAgent(BaseAgent):
 
     async def setup(self, environment: BaseEnvironment) -> None:
         await environment.exec(
-            "mkdir -p /installed-agent/config /logs/artifacts && "
-            "chmod 777 /logs/artifacts",
-            user="root",
-            timeout_sec=30,
+            "mkdir -p /installed-agent/config", user="root", timeout_sec=30
         )
         await environment.upload_file(self.artifact_path, "/installed-agent/pi")
         await environment.upload_file(
