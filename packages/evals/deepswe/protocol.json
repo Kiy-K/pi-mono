@@ -19,7 +19,11 @@
     "clack-async-autocomplete-options",
     "ytt-jsonpath-query-api",
     "vitest-duration-sharding",
-    "langchain-request-coalescing"
+    "langchain-request-coalescing",
+    "sqlite-utils-safe-import-checkpoints",
+    "ipython-session-bundle-replay",
+    "pebble-durability-wait-apis",
+    "opa-template-string-reconstruction"
   ],
   "holdout": [
     "fastapi-deprecation-response-headers",
