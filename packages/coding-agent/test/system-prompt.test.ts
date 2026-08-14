@@ -27,6 +27,16 @@ describe("buildSystemPrompt", () => {
 	});
 
 	describe("default tools", () => {
+		test("recommends portable shell file tools", () => {
+			const prompt = buildSystemPrompt({
+				contextFiles: [],
+				skills: [],
+				cwd: process.cwd(),
+			});
+
+			expect(prompt).toContain("- Use bash for file operations like ls, grep, find");
+		});
+
 		test("includes all default tools when snippets are provided", () => {
 			const prompt = buildSystemPrompt({
 				toolSnippets: {
