@@ -113,6 +113,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 	}
 
 	// Always include these
+	addGuideline("When changing code behavior, add or update focused tests and run them before claiming completion");
 	addGuideline("Be concise in your responses");
 	addGuideline("Show file paths clearly when working with files");
 

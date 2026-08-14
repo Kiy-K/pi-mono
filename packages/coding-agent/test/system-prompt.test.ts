@@ -27,6 +27,18 @@ describe("buildSystemPrompt", () => {
 	});
 
 	describe("default tools", () => {
+		test("requires focused behavior tests before completion", () => {
+			const prompt = buildSystemPrompt({
+				contextFiles: [],
+				skills: [],
+				cwd: process.cwd(),
+			});
+
+			expect(prompt).toContain(
+				"- When changing code behavior, add or update focused tests and run them before claiming completion",
+			);
+		});
+
 		test("includes all default tools when snippets are provided", () => {
 			const prompt = buildSystemPrompt({
 				toolSnippets: {
