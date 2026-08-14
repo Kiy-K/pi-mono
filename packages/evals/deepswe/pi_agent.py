@@ -310,6 +310,10 @@ class PiAgent(BaseAgent):
                     "PI_CODING_AGENT_DIR": "/installed-agent/config",
                     "PI_OFFLINE": "1",
                     "PI_TELEMETRY": "0",
+                    "GIT_AUTHOR_NAME": "Pi Benchmark",
+                    "GIT_AUTHOR_EMAIL": "pi-benchmark@localhost",
+                    "GIT_COMMITTER_NAME": "Pi Benchmark",
+                    "GIT_COMMITTER_EMAIL": "pi-benchmark@localhost",
                 }
             ),
         )

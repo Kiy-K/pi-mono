@@ -101,6 +101,11 @@ the exact Pi commit as its version. Pier officially supports custom agents by
 Python import path. [[custom-agent API](https://github.com/datacurve-ai/pier/blob/df89f994623a0a6a57229103b6fe910766693c30/src/pier/agents/base.py)]
 [[CLI import option](https://github.com/datacurve-ai/pier/blob/df89f994623a0a6a57229103b6fe910766693c30/src/pier/cli/jobs.py)]
 
+The adapter gives both variants the same process-local Git author and committer
+identity. DeepSWE requires a committed patch, while its clean task repositories
+do not configure an identity. The fixed environment avoids a deterministic
+failed first commit without modifying the task repository's Git configuration.
+
 ```bash
 uv tool install 'datacurve-pier==0.3.1'
 git clone https://github.com/datacurve-ai/deep-swe.git /tmp/deep-swe-v1.1

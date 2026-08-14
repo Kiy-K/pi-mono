@@ -248,6 +248,10 @@ class PiAgentIsolationTest(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("/tests", command)
             self.assertNotIn("/solution", command)
             self.assertEqual(env["PI_CODING_AGENT_DIR"], "/installed-agent/config")
+            self.assertEqual(env["GIT_AUTHOR_NAME"], "Pi Benchmark")
+            self.assertEqual(env["GIT_AUTHOR_EMAIL"], "pi-benchmark@localhost")
+            self.assertEqual(env["GIT_COMMITTER_NAME"], "Pi Benchmark")
+            self.assertEqual(env["GIT_COMMITTER_EMAIL"], "pi-benchmark@localhost")
             self.assertEqual(context.n_agent_steps, 1)
 
 
