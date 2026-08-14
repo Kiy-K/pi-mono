@@ -31,8 +31,6 @@ describe("built-in tool system prompt contributions", () => {
 	test("keeps bash session-environment guidance conditional", () => {
 		const definition = createBashToolDefinition("/workspace", { exposeSessionEnvironment: false });
 
-		expect(definition.promptGuidelines).toEqual([
-			"Before claiming success, resolve failed verification commands or establish that their failures are pre-existing.",
-		]);
+		expect(definition.promptGuidelines).toBeUndefined();
 	});
 });

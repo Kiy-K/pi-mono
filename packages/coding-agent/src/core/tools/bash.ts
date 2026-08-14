@@ -43,15 +43,9 @@ const bashSchema = Type.Object({
 	timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional, no default timeout)" })),
 });
 
-const BASH_VERIFICATION_GUIDELINE =
-	"Before claiming success, resolve failed verification commands or establish that their failures are pre-existing.";
-
 export const bashToolSystemPromptContribution = {
 	snippet: "Execute bash commands (ls, grep, find, etc.)",
-	guidelines: [
-		BASH_VERIFICATION_GUIDELINE,
-		"You can inspect PI_* environment variables for current model and session details.",
-	],
+	guidelines: ["You can inspect PI_* environment variables for current model and session details."],
 } as const;
 
 export type BashToolInput = Static<typeof bashSchema>;
@@ -338,9 +332,7 @@ export function createBashToolDefinition(
 		label: "bash",
 		description: `Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.`,
 		promptSnippet: bashToolSystemPromptContribution.snippet,
-		promptGuidelines: exposeSessionEnvironment
-			? [...bashToolSystemPromptContribution.guidelines]
-			: [BASH_VERIFICATION_GUIDELINE],
+		promptGuidelines: exposeSessionEnvironment ? [...bashToolSystemPromptContribution.guidelines] : undefined,
 		parameters: bashSchema,
 		constrainedSampling: getExperimentalToolSampling(),
 		async execute(
