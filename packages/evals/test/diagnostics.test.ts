@@ -12,6 +12,26 @@ import {
 	runVerifier,
 	validateManifest,
 } from "../scripts/diagnostics.mjs";
+import {
+	assertComparableTrials,
+	classifyOutcome,
+	makeRunManifest,
+	preflightEvaluator,
+} from "../scripts/evaluation-contract.mjs";
+
+const stockTrial = {
+	sourceAnchor: "21f0bea88fdfbf5967497a4e8864eddaec11a310",
+	artifactSha256: "a".repeat(64),
+	evaluatorSha256: "b".repeat(64),
+	configSha256: "c".repeat(64),
+	provider: "clinepass",
+	model: "deepseek-v4-flash",
+	thinking: "medium",
+	taskRevision: "fixture-v1",
+	prompt: "Fix it.",
+	tools: ["bash"],
+	timeoutMs: 600_000,
+};
 
 const roots: string[] = [];
 const execFileAsync = promisify(execFile);
@@ -37,6 +57,47 @@ describe("diagnostic manifest", () => {
 				],
 			}),
 		).toThrow(/duplicate task id|verifier.*outside/i);
+	});
+});
+
+describe("evaluation contract", () => {
+	it("classifies cancelled and invalid attempts outside capability evidence", () => {
+		expect(classifyOutcome({ cancelled: true })).toBe("cancelled_user");
+		expect(classifyOutcome({ providerError: "401 unauthorized" })).toBe("invalid_provider");
+		expect(classifyOutcome({ processTimedOut: true, verifierPassed: false })).toBe("timeout_harness");
+		expect(classifyOutcome({ processExitedCleanly: true, verifierPassed: true })).toBe("solved");
+	});
+
+	it("rejects a stock/candidate pair with mismatched model configuration", () => {
+		expect(() => assertComparableTrials(stockTrial, { ...stockTrial, model: "other/model" })).toThrow(/model/i);
+	});
+
+	it("records immutable evaluator and treatment identity before execution", () => {
+		const manifest = makeRunManifest({
+			runId: "run-1",
+			stock: stockTrial,
+			candidate: { ...stockTrial, artifactSha256: "d".repeat(64) },
+			runOrder: ["stock", "candidate"],
+			outcome: "unsolved",
+		});
+
+		expect(manifest).toMatchObject({
+			schemaVersion: 2,
+			runId: "run-1",
+			sourceAnchor: stockTrial.sourceAnchor,
+			stock: { artifactSha256: stockTrial.artifactSha256 },
+			candidate: { artifactSha256: "d".repeat(64) },
+			evaluator: { artifactSha256: stockTrial.evaluatorSha256, configSha256: stockTrial.configSha256 },
+			runOrder: ["stock", "candidate"],
+			outcome: "unsolved",
+		});
+	});
+
+	it("blocks a benchmark before launch when the external evaluator is not pinned locally", async () => {
+		await expect(preflightEvaluator(new URL("../evaluator.json", import.meta.url))).resolves.toMatchObject({
+			status: "blocked",
+			reason: expect.stringMatching(/missing/i),
+		});
 	});
 });
 
