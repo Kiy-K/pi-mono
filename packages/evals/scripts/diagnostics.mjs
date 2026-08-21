@@ -88,6 +88,9 @@ export function hashTree(root) {
 
 /** Resolve reproducibility metadata for an extension: path plus package version and tree hash where available. */
 export function provenanceFor(extensionPath) {
+	if (statSync(extensionPath).isFile()) {
+		return { path: extensionPath, name: null, version: null, fileHash: hashFile(extensionPath) };
+	}
 	let name = null;
 	let version = null;
 	const manifestPath = join(extensionPath, "package.json");
@@ -537,29 +540,37 @@ async function main() {
 	const runRoot = resolve(packageRoot, ".eval", "diagnostics", runId);
 	const defaultAgentDir = join(homedir(), ".pi", "agent");
 	const requiredExtensions = resolveMandatedExtensionPaths(defaultAgentDir);
-	const agentDir = join(runRoot, "agent");
-	const sessionDir = join(runRoot, "session");
+	const agentDirs = { stock: join(runRoot, "agent-stock"), improved: join(runRoot, "agent-improved") };
+	const sessionDirs = { stock: join(runRoot, "session-stock"), improved: join(runRoot, "session-improved") };
 	const authSource = join(defaultAgentDir, "auth.json");
 	if (!existsSync(authSource)) {
 		throw new Error(`Mandated evaluator credential missing: ${authSource}. Log into clinepass (pi /login or pi login) first.`);
 	}
-	await mkdir(agentDir, { recursive: true });
-	await copyFile(authSource, join(agentDir, "auth.json"));
+	await Promise.all(
+		Object.values(agentDirs).map(async (dir) => {
+			await mkdir(dir, { recursive: true });
+			await copyFile(authSource, join(dir, "auth.json"));
+		}),
+	);
 	const improvedTreatmentPath = await prepareTreatmentSupport(resolve(options.improvedRepo), runId);
 	const requiredProvenance = requiredExtensions.map(provenanceFor);
 	const treatmentProvenance = { path: improvedTreatmentPath, fileHash: hashFile(improvedTreatmentPath) };
 	const tasksProvenance = tasks.map((task) => ({ id: task.id, fixture: task.fixture, hash: hashTree(resolve(packageRoot, "diagnostics", task.fixture)) }));
+	// Arms must be mechanically identical except for the mechanism under test:
+	// every extension (including the sandbox treatment support) loads on BOTH arms.
+	// The gate experiment differs from stock only by --intervention completion-evidence-gate.
+	const armExtensions = [...requiredExtensions, improvedTreatmentPath];
 	const treatments = await Promise.all(
 		[
-			["stock", resolve(options.stockRepo), null],
-			["improved", resolve(options.improvedRepo), improvedTreatmentPath],
-		].map(async ([name, repository, treatmentExtension]) => ({
+			["stock", resolve(options.stockRepo)],
+			["improved", resolve(options.improvedRepo)],
+		].map(([name, repository]) => ({
 			name,
 			repository,
-			requiredExtensions,
-			treatmentExtension,
-			agentDir,
-			sessionDir,
+			requiredExtensions: armExtensions,
+			treatmentExtension: null,
+			agentDir: agentDirs[name],
+			sessionDir: sessionDirs[name],
 		})),
 	);
 	const interventionEnabled = options.intervention === "semantic-verify" || options.intervention === "fresh-context-verify";
@@ -594,16 +605,16 @@ async function main() {
 			skills: [],
 			env: "isolated (launcher --no-env strips ambient API keys)",
 			configFiles: { contextFiles: "disabled", promptTemplates: "disabled", themes: "disabled" },
-			intervention: interventionEnabled ? (options.intervention ?? "none") : "none",
+			intervention: gateEnabled ? "completion-evidence-gate" : interventionEnabled ? (options.intervention ?? "none") : "none",
 		},
 		runtime: {
-			agentDir,
+			agentDir: agentDirs,
+			sessionDir: sessionDirs,
 			environment: "isolated",
 			extensions: {
 				required: requiredExtensions,
+				armExtensions: armExtensions.map(provenanceFor),
 				ambientBlocked: true,
-				stockTreatment: null,
-				improvedTreatment: treatments.find((treatment) => treatment.name === "improved")?.treatmentExtension ?? null,
 			},
 			model: options.model,
 			thinking: options.thinking,
