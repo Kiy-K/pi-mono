@@ -462,6 +462,11 @@ async function runTreatment({ name, repository, task, repetition, runRoot, requi
 		writeFile(join(dirname(workspace), "events.jsonl"), [phase1, phase1b, phase2, phase3].filter(Boolean).map((p) => p.stdout).join("\n")),
 		writeFile(join(dirname(workspace), "stderr.log"), [phase1, phase1b, phase2, phase3].filter(Boolean).map((p) => p.stderr).join("\n")),
 	]);
+	const phases = [phase1, phase1b, phase2, phase3].filter(Boolean);
+	// A rep where every phase consumed zero tokens settled on empty provider
+	// responses: no model output ever existed, so the outcome is infra noise,
+	// not task evidence.
+	const providerNoise = telemetry.totalTokens === 0;
 	return {
 		name,
 		taskId: task.id,
@@ -479,10 +484,15 @@ async function runTreatment({ name, repository, task, repetition, runRoot, requi
 			tools: "default-builtin",
 			configFiles: { contextFiles: "disabled", promptTemplates: "disabled", themes: "disabled" },
 		},
-		process: { exitCode: finalPhase.exitCode, signal: finalPhase.signal, timedOut: phase1.timedOut || (phase1b?.timedOut ?? false) || (phase2?.timedOut ?? false) || (phase3?.timedOut ?? false), totalMs },
+		process: { exitCode: finalPhase.exitCode, signal: finalPhase.signal, timedOut: phases.some((phase) => phase.timedOut), totalMs },
 		telemetry,
 		verifier: { passed: verifier.passed, tests: verifier.tests, exitCode: verifier.exitCode, timedOut: verifier.timedOut, stdout: verifier.stdout, stderr: verifier.stderr },
-		solved: finalPhase.exitCode === 0 && !(phase1.timedOut || (phase1b?.timedOut ?? false) || (phase2?.timedOut ?? false) || (phase3?.timedOut ?? false)) && verifier.passed,
+		solved:
+			finalPhase.exitCode === 0 &&
+			!phases.some((phase) => phase.timedOut) &&
+			!providerNoise &&
+			verifier.passed,
+		providerNoise,
 		freshContextVerifierReport: freshContextVerifierReport ?? null,
 		gate: {
 			attemptedStop: gateAttemptedStop,
