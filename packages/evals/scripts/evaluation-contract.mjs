@@ -17,18 +17,38 @@ const REQUIRED_IDENTITY_KEYS = [
 	"timeoutMs",
 ];
 
+/**
+ * Computes the SHA-256 digest of a value.
+ * @param {string|Buffer} value - The value to hash.
+ * @return {string} The digest encoded as a hexadecimal string.
+ */
 function sha256(value) {
 	return createHash("sha256").update(value).digest("hex");
 }
 
+/**
+ * Determines whether a value is a nonempty string after trimming whitespace.
+ * @param {*} value - The value to check.
+ * @return {boolean} `true` if the value is a nonempty string, `false` otherwise.
+ */
 function nonEmptyString(value) {
 	return typeof value === "string" && value.trim() !== "";
 }
 
+/**
+ * Serializes a value as a JSON string.
+ * @param {*} value - The value to serialize.
+ * @return {string|undefined} The JSON representation of the value, or `undefined` when it cannot be represented in JSON.
+ */
 function compareValue(value) {
 	return JSON.stringify(value);
 }
 
+/**
+ * Classifies a trial result based on cancellation, errors, timeout, and verification status.
+ * @param {Object} input - Trial execution and verification details.
+ * @returns {string} The outcome label: `"cancelled_user"`, `"invalid_provider"`, `"invalid_infra"`, `"timeout_harness"`, `"solved"`, or `"unsolved"`.
+ */
 export function classifyOutcome(input) {
 	if (input.cancelled === true) return "cancelled_user";
 	if (nonEmptyString(input.providerError)) return "invalid_provider";
@@ -38,6 +58,12 @@ export function classifyOutcome(input) {
 	return "unsolved";
 }
 
+/**
+ * Verifies that stock and candidate trials have matching identity fields and nonempty artifact hashes.
+ * @param {Object} stock - The stock trial to validate.
+ * @param {Object} candidate - The candidate trial to validate.
+ * @throws {Error} If a required identity field is missing or mismatched, or either artifact hash is empty.
+ */
 export function assertComparableTrials(stock, candidate) {
 	for (const key of REQUIRED_IDENTITY_KEYS) {
 		if (!(key in stock) || !(key in candidate)) throw new Error(`Missing comparable treatment field: ${key}.`);
@@ -50,6 +76,17 @@ export function assertComparableTrials(stock, candidate) {
 	}
 }
 
+/**
+ * Creates a schema-versioned manifest describing comparable stock and candidate trial runs.
+ * @param {Object} options - Manifest inputs.
+ * @param {string} options.runId - Identifier for the evaluation run.
+ * @param {Object} options.stock - Stock trial metadata.
+ * @param {Object} options.candidate - Candidate trial metadata.
+ * @param {string[]} options.runOrder - Order in which the stock and candidate trials ran.
+ * @param {string} options.outcome - Classified outcome of the evaluation.
+ * @returns {Object} The completed run manifest.
+ * @throws {Error} If the run ID, trial metadata, or run order is invalid.
+ */
 export function makeRunManifest({ runId, stock, candidate, runOrder, outcome }) {
 	if (!nonEmptyString(runId)) throw new Error("Run manifest requires runId.");
 	assertComparableTrials(stock, candidate);
@@ -80,6 +117,12 @@ export function makeRunManifest({ runId, stock, candidate, runOrder, outcome }) 
 	};
 }
 
+/**
+ * Loads and validates an evaluator descriptor.
+ * @param {string|URL} path - The path or file URL of the evaluator descriptor.
+ * @return {Promise<Object>} The evaluator descriptor with its resolved path, SHA-256 hash, blocked status, and missing required fields.
+ * @throws {Error} If the descriptor cannot be read, parsed, or does not use the required schema, provider, model, or thinking level.
+ */
 export async function readEvaluatorContract(path) {
 	const descriptorPath = path instanceof URL ? fileURLToPath(path) : path;
 	const source = await readFile(descriptorPath, "utf8");
@@ -99,10 +142,20 @@ export async function readEvaluatorContract(path) {
 	};
 }
 
+/**
+ * Computes the SHA-256 hash of a file.
+ * @param {string} path - The path to the file.
+ * @return {Promise<string>} The file's SHA-256 hash.
+ */
 async function fileSha256(path) {
 	return sha256(await readFile(path));
 }
 
+/**
+ * Validates an evaluator descriptor and its referenced files for execution.
+ * @param {string} path - Path to the evaluator descriptor.
+ * @returns {{status: "ready", evaluator: Object}|{status: "blocked", reason: string}} The preflight result, including evaluator metadata when ready or a blocking reason otherwise.
+ */
 export async function preflightEvaluator(path) {
 	const evaluator = await readEvaluatorContract(path);
 	if (evaluator.blocked) {
@@ -121,6 +174,11 @@ export async function preflightEvaluator(path) {
 	}
 }
 
+/**
+ * Runs the evaluator preflight command and prints its result as JSON.
+ * @param {string[]} args - Command-line arguments containing `preflight --evaluator <path>`.
+ * @throws {Error} If the required command-line arguments are missing or invalid.
+ */
 async function main(args) {
 	if (args[0] !== "preflight" || args[1] !== "--evaluator" || !args[2]) {
 		throw new Error("Usage: evaluation-contract.mjs preflight --evaluator <path>.");
