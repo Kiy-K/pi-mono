@@ -1,0 +1,10 @@
+{
+	"schemaVersion": 1,
+	"provider": "clinepass",
+	"model": "deepseek-v4-flash",
+	"thinking": "medium",
+	"extensionPath": null,
+	"extensionSha256": null,
+	"configSha256": null,
+	"headlessCommand": null
+}
