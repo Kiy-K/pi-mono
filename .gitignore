@@ -42,3 +42,11 @@ plans/
 .pi/hf-sessions/
 .pi/hf-sessions-backup/
 collect.sh
+
+# Local agent/runtime artifacts
+.mimosa/
+**/.mimosa/
+
+# Fabric runtime state
+.pi/fabric/mcp-cache.json
+.pi/fabric/mesh/state.json
