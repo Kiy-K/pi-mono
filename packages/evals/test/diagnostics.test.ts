@@ -102,20 +102,45 @@ describe("evaluation contract", () => {
 });
 
 it("keeps treatment settings identical except for repository and result identity", () => {
+it("keeps treatment settings identical except for repository, result identity, and the treatment extension", () => {
 	const common = {
 		workspace: "/tmp/task",
-		extension: "/tmp/support/isolated-bash.ts",
-		model: "openai-codex/gpt-5.6-luna",
+		requiredExtensions: ["/tmp/clinepass", "/tmp/fabric"],
+		model: "openai-codex/gpt-5.3-codex-spark",
 		thinking: "medium",
 		prompt: "Fix the bug and run the tests.",
 	};
 	const stock = buildPiInvocation({ ...common, repository: "/tmp/stock" });
-	const improved = buildPiInvocation({ ...common, repository: "/tmp/improved" });
+	const improved = buildPiInvocation({
+		...common,
+		repository: "/tmp/improved",
+		treatmentExtension: "/tmp/support/isolated-bash.ts",
+	});
+	const improvedWithoutTreatment = buildPiInvocation({ ...common, repository: "/tmp/improved" });
 
-	expect(stock.args).toEqual(improved.args);
+	// Command differs only by repo; cwd identical.
 	expect(stock.cwd).toBe(improved.cwd);
 	expect(stock.command).toBe("/tmp/stock/pi-test.sh");
 	expect(improved.command).toBe("/tmp/improved/pi-test.sh");
+
+	// Stock never receives the treatment extension; improved carries it exactly once.
+	expect(stock.args).not.toContain("/tmp/support/isolated-bash.ts");
+	expect(improved.args.filter((arg) => arg === "/tmp/support/isolated-bash.ts")).toHaveLength(1);
+
+	// The two mandated extensions are pinned in every invocation (improved adds a third, its treatment).
+	for (const invocation of [stock, improvedWithoutTreatment]) {
+		expect(invocation.args.filter((arg) => arg === "--extension")).toHaveLength(2);
+		expect(invocation.args).toContain("/tmp/clinepass");
+		expect(invocation.args).toContain("/tmp/fabric");
+	}
+	expect(improved.args.filter((arg) => arg === "--extension")).toHaveLength(3);
+	expect(improved.args).toContain("/tmp/clinepass");
+	expect(improved.args).toContain("/tmp/fabric");
+
+	// With treatment disabled both treatments are identical (excluding repository).
+	const stockNoTreatment = buildPiInvocation({ ...common, repository: "/tmp/stock" });
+	expect(improvedWithoutTreatment.args).toEqual(stockNoTreatment.args);
+	expect(improvedWithoutTreatment.cwd).toBe(stockNoTreatment.cwd);
 });
 
 it("prepares each task as a clean committed Git repository", async () => {

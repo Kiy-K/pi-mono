@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -21,7 +21,6 @@ it("exposes only the writable workspace with no ambient environment or network r
 	const chunks: Buffer[] = [];
 	const result = await createIsolatedBashOperations().exec(
 		[
-			'test "$PWD" = /tmp/workspace',
 			'test ! -e "$HOST_MARKER"',
 			"! env | grep -q '^PI_EVAL_SECRET_MARKER='",
 			'test "$(tail -n +2 /proc/net/route | wc -l)" -eq 0',
@@ -37,7 +36,10 @@ it("exposes only the writable workspace with no ambient environment or network r
 
 	const output = Buffer.concat(chunks).toString();
 	expect(result.exitCode, output).toBe(0);
-	expect(output).toBe("/tmp/workspace");
+	// The sandbox must report the workspace at its real path: bash-printed
+	// paths have to resolve identically for the unsandboxed read/edit/write
+	// tools, or edits land outside the workspace on the host.
+	expect(output).toBe(await realpath(workspace));
 	expect(await readFile(join(workspace, "result.txt"), "utf8")).toBe("isolated");
 	await expect(readFile(hostMarker, "utf8")).resolves.toBe("secret\n");
 	await expect(probeToolIsolation(workspace)).resolves.toBeUndefined();

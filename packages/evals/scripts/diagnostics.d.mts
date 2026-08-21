@@ -16,11 +16,22 @@ export function validateManifest(manifest: unknown): DiagnosticManifest;
 export function buildPiInvocation(options: {
 	repository: string;
 	workspace: string;
-	extension: string;
+	requiredExtensions: string[];
+	treatmentExtension?: string;
 	model: string;
 	thinking: string;
 	prompt: string;
 }): { command: string; cwd: string; args: string[] };
+
+export const MANDATED_EXTENSION_NAMES: string[];
+
+export function resolveMandatedExtensionPaths(agentDir: string): string[];
+
+export function hashTree(root: string): string;
+
+export function provenanceFor(extensionPath: string): { path: string; name: string | null; version: string | null; treeHash: string };
+
+export function hashFile(file: string): string;
 
 export function parsePiEvents(stdout: string): {
 	eventCount: number;
@@ -38,6 +49,8 @@ export function parsePiEvents(stdout: string): {
 	estimatedCostUsd: number;
 	finalStopReason?: string;
 	finalError?: string;
+	freshContextVerificationDetected?: boolean;
+	freshContextRepairSucceeded?: boolean;
 };
 
 export function prepareWorkspace(fixture: string, workspace: string): Promise<void>;

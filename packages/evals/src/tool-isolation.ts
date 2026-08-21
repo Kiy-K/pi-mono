@@ -4,7 +4,6 @@ import { realpath, stat } from "node:fs/promises";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
 
 const SANDBOX_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
-const SANDBOX_CWD = "/tmp/workspace";
 
 function killProcessGroup(pid: number | undefined): void {
 	if (!pid) return;
@@ -21,20 +20,26 @@ export function createIsolatedBashOperations(): BashOperations {
 	return {
 		async exec(command, cwd, { onData, signal, timeout }) {
 			const workspace = await realpath(cwd);
-			if (!(await stat(workspace)).isDirectory()) throw new Error(`Working directory is not a directory: ${cwd}`);
+			if (!(await stat(workspace)).isDirectory()) {
+				throw new Error("Working directory is not a directory: " + cwd);
+			}
 
+			// The workspace is bind-mounted at its own real path so the sandbox
+			// reports the same absolute paths the read/edit/write tools use.
+			// Remapping it to a fixed path (e.g. /tmp/workspace) makes bash output
+			// disagree with the file tools' path namespace: agents then hand the
+			// write tool sandbox-internal paths and the edits land outside the
+			// workspace on the host, invisible to both bash and verifiers.
 			const args = ["--ro-bind", "/", "/"];
 			for (const hiddenPath of ["/home", "/root", "/run/user", "/tmp"]) {
 				if (existsSync(hiddenPath)) args.push("--tmpfs", hiddenPath);
 			}
 			args.push(
-				"--dir",
-				SANDBOX_CWD,
 				"--bind",
 				workspace,
-				SANDBOX_CWD,
+				workspace,
 				"--chdir",
-				SANDBOX_CWD,
+				workspace,
 				"--unshare-net",
 				"--unshare-pid",
 				"--unshare-uts",
@@ -107,7 +112,6 @@ export async function probeToolIsolation(cwd: string): Promise<void> {
 	const output: Buffer[] = [];
 	const { exitCode } = await createIsolatedBashOperations().exec(
 		[
-			`test "$PWD" = ${SANDBOX_CWD}`,
 			'test -w "$PWD"',
 			'test -z "$(find /home /root -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)"',
 			'! env | grep -Eq "(_TOKEN|_KEY|_SECRET|AUTH|CREDENTIAL)"',
@@ -120,5 +124,22 @@ export async function probeToolIsolation(cwd: string): Promise<void> {
 	);
 	if (exitCode !== 0) {
 		throw new Error(`Eval isolation probe failed with exit code ${exitCode}: ${Buffer.concat(output).toString()}`);
+	}
+
+	// The sandbox must report the workspace at the same absolute path the
+	// read/edit/write tools use, so file paths printed by bash resolve
+	// identically outside the sandbox. Verified from the outside instead of
+	// interpolating the path into the probe command.
+	const pwdOutput: Buffer[] = [];
+	const pwd = await createIsolatedBashOperations().exec("pwd", cwd, {
+		onData: (chunk) => pwdOutput.push(chunk),
+		timeout: 10,
+	});
+	const sandboxCwd = Buffer.concat(pwdOutput).toString().trim();
+	const expectedCwd = await realpath(cwd);
+	if (pwd.exitCode !== 0 || sandboxCwd !== expectedCwd) {
+		throw new Error(
+			"Eval isolation probe: sandbox cwd " + sandboxCwd + " does not match the real workspace path " + expectedCwd,
+		);
 	}
 }

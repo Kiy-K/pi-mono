@@ -1,10 +1,112 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { appendFile, cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+/** Extensions the mandated evaluator requires to run (provider + code-glue tool). */
+export const MANDATED_EXTENSION_NAMES = ["pi-clinepass-provider", "pi-fabric"];
+
+/**
+ * Resolve the absolute install paths of the mandated evaluator extensions from an
+ * agent directory's standard npm install location. Only the mandated names are
+ * returned: any other ambient extension (installed under the same root) is never
+ * selected, so a dummy user extension cannot change the effective runtime.
+ */
+export function resolveMandatedExtensionPaths(agentDir) {
+	return MANDATED_EXTENSION_NAMES.map((name) => {
+		const path = join(agentDir, "npm", "node_modules", name);
+		if (!existsSync(path)) throw new Error(`Required evaluator extension not installed at ${path}. Enable/install ${name} first.`);
+		return path;
+	});
+}
+
+/**
+ * Fresh-context independent verification prompt.  Invoked after the generator
+ * completes normally.  The verifier receives only the original spec and the
+ * workspace path — no generator conversation history, reasoning, or hints.
+ */
+const FRESH_CONTEXT_VERIFY_PROMPT = `You are an independent code reviewer. Your task is to verify that an implementation correctly satisfies its specification.
+
+Original specification:
+{ORIGINAL_PROMPT}
+
+The implementation is located at: {WORKSPACE_PATH}
+
+Instructions:
+1. Read the original specification carefully
+2. Identify all invariants, boundary conditions, and state-transition cases specified
+3. Read the implementation files from the workspace path above
+4. Compare the implementation against each identified requirement
+5. Report any concrete specification violations you find
+
+Be specific: name the invariant, show the code that violates it, and explain why.
+
+If you find no violations, state exactly: NO VIOLATIONS FOUND
+
+Do NOT modify any files. This is a read-only verification.`;
+
+/**
+ * Repair prompt for the original agent.  Injected when the fresh-context
+ * verifier reports a plausible violation.  Gives the original agent exactly
+ * one opportunity to fix the issues.
+ */
+const REPAIR_PROMPT_TEMPLATE = `An independent reviewer found the following specification violations in your implementation:
+
+{VIOLATION_REPORT}
+
+Please fix these issues and verify your fixes. This is your only repair opportunity.`;
+
+/** Directories excluded from a provenance tree hash (depend on the version pins instead). */
+const PROVENANCE_IGNORED_DIRS = new Set(["node_modules", ".git", ".hg", ".svn", ".idea", ".vscode"]);
+
+/** Deterministic content/tree hash: sha256 over sorted `relpath<NUL>sha256(content)` lines. */
+export function hashTree(root) {
+	const lines = [];
+	function walk(dir, rel) {
+		for (const name of readdirSync(dir).sort()) {
+			if (PROVENANCE_IGNORED_DIRS.has(name)) continue;
+			const abs = join(dir, name);
+			const childRel = rel === "" ? name : `${rel}/${name}`;
+			const stat = statSync(abs);
+			if (stat.isDirectory()) {
+				walk(abs, childRel);
+			} else if (stat.isFile()) {
+				lines.push(`${childRel}\u0000${createHash("sha256").update(readFileSync(abs)).digest("hex")}`);
+			}
+		}
+	}
+	walk(root, "");
+	const hash = createHash("sha256");
+	for (const line of lines.sort()) hash.update(line).update("\n");
+	return hash.digest("hex");
+}
+
+/** Resolve reproducibility metadata for an extension: path plus package version and tree hash where available. */
+export function provenanceFor(extensionPath) {
+	let name = null;
+	let version = null;
+	const manifestPath = join(extensionPath, "package.json");
+	if (existsSync(manifestPath)) {
+		try {
+			const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+			name = manifest.name ?? null;
+			version = manifest.version ?? null;
+		} catch {
+			// Version is best-effort; the tree hash is authoritative.
+		}
+	}
+	return { path: extensionPath, name, version, treeHash: hashTree(extensionPath) };
+}
+
+/** sha256 of a single file (used for the copied treatment extension source). */
+export function hashFile(file) {
+	return createHash("sha256").update(readFileSync(file)).digest("hex");
+}
 
 function inside(parent, child) {
 	const path = relative(parent, child);
@@ -39,9 +141,12 @@ export function validateManifest(manifest) {
 	return manifest;
 }
 
-export function buildPiInvocation({ repository, workspace, extension, model, thinking, prompt }) {
+export function buildPiInvocation({ repository, workspace, requiredExtensions, treatmentExtension, model, thinking, prompt }) {
 	const separator = model.indexOf("/");
 	if (separator <= 0 || separator === model.length - 1) throw new Error("Model must be provider/model.");
+	if (!Array.isArray(requiredExtensions) || requiredExtensions.length === 0) {
+		throw new Error("requiredExtensions must name at least one evaluator extension.");
+	}
 	return {
 		command: join(repository, "pi-test.sh"),
 		cwd: workspace,
@@ -51,23 +156,21 @@ export function buildPiInvocation({ repository, workspace, extension, model, thi
 			"--print",
 			"--no-session",
 			"--offline",
+			"--approve",
+			"--no-env",
 			"--no-extensions",
+			...requiredExtensions.flatMap((extension) => ["--extension", extension]),
+			...(treatmentExtension ? ["--extension", treatmentExtension] : []),
 			"--no-skills",
+			"--no-context-files",
 			"--no-prompt-templates",
 			"--no-themes",
-			"--no-context-files",
-			"--no-builtin-tools",
-			"--tools",
-			"bash",
-			"--approve",
 			"--provider",
 			model.slice(0, separator),
 			"--model",
 			model.slice(separator + 1),
 			"--thinking",
 			thinking,
-			"--extension",
-			extension,
 			prompt,
 		],
 	};
@@ -196,7 +299,7 @@ export async function runVerifier(verifier, workspace, timeoutMs) {
 }
 
 function parseArgs(args) {
-	const options = { split: "development", repetitions: 1, timeoutMs: 600_000, thinking: "medium" };
+	const options = { split: "development", repetitions: 1, timeoutMs: 600_000, thinking: "medium", intervention: "none", tasks: null };
 	for (let index = 0; index < args.length; index += 1) {
 		const key = args[index];
 		if (key === "run") continue;
@@ -247,16 +350,114 @@ export async function prepareTreatmentSupport(repository, runId) {
 	return join(supportRoot, "extensions", "isolated-bash.ts");
 }
 
-async function runTreatment({ name, repository, task, repetition, runRoot, supportExtension, model, thinking, timeoutMs }) {
+async function runTreatment({ name, repository, task, repetition, runRoot, requiredExtensions, treatmentExtension, agentDir, sessionDir, model, thinking, timeoutMs, interventionEnabled, gateEnabled }) {
 	const workspace = join(runRoot, task.id, String(repetition), name, "workspace");
 	await prepareWorkspace(resolve(packageRoot, "diagnostics", task.fixture), workspace);
-	const invocation = buildPiInvocation({ repository, workspace, extension: supportExtension, model, thinking, prompt: task.prompt });
-	const processResult = await runProcess(invocation.command, invocation.args, { cwd: invocation.cwd, timeoutMs });
-	const telemetry = parsePiEvents(processResult.stdout);
-	const verifier = await runVerifier(resolve(packageRoot, "diagnostics", task.verifier), workspace, 60_000);
+	const invocation = buildPiInvocation({ repository, workspace, requiredExtensions, treatmentExtension, model, thinking, prompt: task.prompt });
+	const env = {
+		...process.env,
+		PI_CODING_AGENT_DIR: agentDir,
+		PI_CODING_AGENT_SESSION_DIR: sessionDir,
+	};
+	const verifierPath = resolve(packageRoot, "diagnostics", task.verifier);
+
+	// Phase 1: normal generator run.
+	const phase1 = await runProcess(invocation.command, invocation.args, { cwd: invocation.cwd, env, timeoutMs });
+	const phase1Telemetry = parsePiEvents(phase1.stdout);
+
+	// Completion-evidence gate: detect premature abort and optionally continue.
+	let gateAttemptedStop = false;
+	let gatePhase1ToolCalls = 0;
+	let gateContinuationRan = false;
+	let gateContinuationToolCalls = 0;
+	let gateContinuationResumed = false;
+	let gateOverheadTokens = 0;
+	let gateOverheadMs = 0;
+	let phase1b = null;
+	let phase1bTelemetry = null;
+	const gateTriggered = gateEnabled
+		&& phase1Telemetry.toolCalls < 3
+		&& phase1Telemetry.finalStopReason === "stop"
+		&& !phase1.timedOut;
+	if (gateTriggered) {
+		gateAttemptedStop = true;
+		gatePhase1ToolCalls = phase1Telemetry.toolCalls;
+		// Re-invoke with the same prompt in the same workspace (agent sees partial work).
+		phase1b = await runProcess(invocation.command, invocation.args, { cwd: invocation.cwd, env, timeoutMs });
+		phase1bTelemetry = parsePiEvents(phase1b.stdout);
+		gateContinuationRan = true;
+		gateContinuationToolCalls = phase1bTelemetry.toolCalls;
+		gateContinuationResumed = phase1bTelemetry.toolCalls > 0;
+		gateOverheadTokens = phase1bTelemetry.totalTokens;
+		gateOverheadMs = phase1b.totalMs;
+	}
+
+	// Phase 2: fresh-context independent verification (improved treatment only).
+	// Runs a separate agent with only the spec and workspace path — no generator history.
+	let phase2 = null;
+	let phase2Telemetry = null;
+	let freshContextVerifierDetected = false;
+	let freshContextVerifierReport = null;
+	let freshContextRepairSucceeded = false;
+	let phase3 = null;
+	let phase3Telemetry = null;
+	const triggerPhase2 = interventionEnabled && (phase1bTelemetry?.finalStopReason ?? phase1Telemetry.finalStopReason) === "stop" && !(phase1.timedOut || (phase1b?.timedOut ?? false));
+	if (triggerPhase2) {
+		const verifyPrompt = FRESH_CONTEXT_VERIFY_PROMPT
+			.replace("{ORIGINAL_PROMPT}", task.prompt)
+			.replace("{WORKSPACE_PATH}", workspace);
+		// Verifier runs in its own workspace (copy of fixture), reads implementation via absolute paths.
+		const verifierWorkspace = join(runRoot, task.id, String(repetition), `${name}-verifier`, "workspace");
+		await prepareWorkspace(resolve(packageRoot, "diagnostics", task.fixture), verifierWorkspace);
+		const phase2Invocation = buildPiInvocation({ repository, workspace: verifierWorkspace, requiredExtensions, treatmentExtension, model, thinking, prompt: verifyPrompt });
+		phase2 = await runProcess(phase2Invocation.command, phase2Invocation.args, { cwd: phase2Invocation.cwd, env, timeoutMs });
+		phase2Telemetry = parsePiEvents(phase2.stdout);
+
+		// Parse verifier output for violations.
+		const verifierOutput = phase2.stdout;
+		freshContextVerifierDetected = !verifierOutput.includes("NO VIOLATIONS FOUND");
+		if (freshContextVerifierDetected) {
+			// Extract the violation report (everything after the last tool output, before final stop).
+			freshContextVerifierReport = extractViolationReport(verifierOutput);
+		}
+
+		// Phase 3: if violations detected, give original agent one repair opportunity.
+		if (freshContextVerifierDetected && freshContextVerifierReport) {
+			const repairPrompt = REPAIR_PROMPT_TEMPLATE.replace("{VIOLATION_REPORT}", freshContextVerifierReport);
+			const phase3Invocation = buildPiInvocation({ repository, workspace, requiredExtensions, treatmentExtension, model, thinking, prompt: repairPrompt });
+			phase3 = await runProcess(phase3Invocation.command, phase3Invocation.args, { cwd: phase3Invocation.cwd, env, timeoutMs });
+			phase3Telemetry = parsePiEvents(phase3.stdout);
+		}
+	}
+
+	// Merge telemetry from all phases (phase1b = gate continuation).
+	const telemetry = {
+		eventCount: phase1Telemetry.eventCount + (phase1bTelemetry?.eventCount ?? 0) + (phase2Telemetry?.eventCount ?? 0) + (phase3Telemetry?.eventCount ?? 0),
+		toolCalls: phase1Telemetry.toolCalls + (phase1bTelemetry?.toolCalls ?? 0) + (phase2Telemetry?.toolCalls ?? 0) + (phase3Telemetry?.toolCalls ?? 0),
+		failedToolCalls: phase1Telemetry.failedToolCalls + (phase1bTelemetry?.failedToolCalls ?? 0) + (phase2Telemetry?.failedToolCalls ?? 0) + (phase3Telemetry?.failedToolCalls ?? 0),
+		repeatedToolCalls: phase1Telemetry.repeatedToolCalls + (phase1bTelemetry?.repeatedToolCalls ?? 0) + (phase2Telemetry?.repeatedToolCalls ?? 0) + (phase3Telemetry?.repeatedToolCalls ?? 0),
+		retries: phase1Telemetry.retries + (phase1bTelemetry?.retries ?? 0) + (phase2Telemetry?.retries ?? 0) + (phase3Telemetry?.retries ?? 0),
+		compactions: phase1Telemetry.compactions + (phase1bTelemetry?.compactions ?? 0) + (phase2Telemetry?.compactions ?? 0) + (phase3Telemetry?.compactions ?? 0),
+		inputTokens: phase1Telemetry.inputTokens + (phase1bTelemetry?.inputTokens ?? 0) + (phase2Telemetry?.inputTokens ?? 0) + (phase3Telemetry?.inputTokens ?? 0),
+		outputTokens: phase1Telemetry.outputTokens + (phase1bTelemetry?.outputTokens ?? 0) + (phase2Telemetry?.outputTokens ?? 0) + (phase3Telemetry?.outputTokens ?? 0),
+		cacheReadTokens: phase1Telemetry.cacheReadTokens + (phase1bTelemetry?.cacheReadTokens ?? 0) + (phase2Telemetry?.cacheReadTokens ?? 0) + (phase3Telemetry?.cacheReadTokens ?? 0),
+		cacheWriteTokens: phase1Telemetry.cacheWriteTokens + (phase1bTelemetry?.cacheWriteTokens ?? 0) + (phase2Telemetry?.cacheWriteTokens ?? 0) + (phase3Telemetry?.cacheWriteTokens ?? 0),
+		totalTokens: phase1Telemetry.totalTokens + (phase1bTelemetry?.totalTokens ?? 0) + (phase2Telemetry?.totalTokens ?? 0) + (phase3Telemetry?.totalTokens ?? 0),
+		estimatedCostUsd: phase1Telemetry.estimatedCostUsd + (phase1bTelemetry?.estimatedCostUsd ?? 0) + (phase2Telemetry?.estimatedCostUsd ?? 0) + (phase3Telemetry?.estimatedCostUsd ?? 0),
+		finalStopReason: phase3Telemetry?.finalStopReason ?? phase2Telemetry?.finalStopReason ?? phase1bTelemetry?.finalStopReason ?? phase1Telemetry.finalStopReason,
+		finalError: phase3Telemetry?.finalError ?? phase2Telemetry?.finalError ?? phase1bTelemetry?.finalError ?? phase1Telemetry.finalError,
+		freshContextVerificationDetected: triggerPhase2 && freshContextVerifierDetected,
+		freshContextRepairSucceeded: freshContextRepairSucceeded,
+	};
+
+	// Verifier runs once on the final workspace state (after repair if it ran).
+	const verifier = await runVerifier(verifierPath, workspace, 60_000);
+	const totalMs = phase1.totalMs + (phase1b?.totalMs ?? 0) + (phase2?.totalMs ?? 0) + (phase3?.totalMs ?? 0);
+	const finalPhase = phase3 ?? phase2 ?? phase1b ?? phase1;
+
 	await Promise.all([
-		writeFile(join(dirname(workspace), "events.jsonl"), processResult.stdout),
-		writeFile(join(dirname(workspace), "stderr.log"), processResult.stderr),
+		writeFile(join(dirname(workspace), "events.jsonl"), [phase1, phase1b, phase2, phase3].filter(Boolean).map((p) => p.stdout).join("\n")),
+		writeFile(join(dirname(workspace), "stderr.log"), [phase1, phase1b, phase2, phase3].filter(Boolean).map((p) => p.stderr).join("\n")),
 	]);
 	return {
 		name,
@@ -265,11 +466,56 @@ async function runTreatment({ name, repository, task, repetition, runRoot, suppo
 		repetition,
 		repository,
 		commit: await gitCommit(repository),
-		process: { exitCode: processResult.exitCode, signal: processResult.signal, timedOut: processResult.timedOut, totalMs: processResult.totalMs },
+		effectiveConfig: {
+			model,
+			thinking,
+			agentDir,
+			environment: "isolated (launcher --no-env strips ambient API keys)",
+			extensions: { required: requiredExtensions, treatment: treatmentExtension ?? null },
+			skills: [],
+			tools: "default-builtin",
+			configFiles: { contextFiles: "disabled", promptTemplates: "disabled", themes: "disabled" },
+		},
+		process: { exitCode: finalPhase.exitCode, signal: finalPhase.signal, timedOut: phase1.timedOut || (phase1b?.timedOut ?? false) || (phase2?.timedOut ?? false) || (phase3?.timedOut ?? false), totalMs },
 		telemetry,
 		verifier: { passed: verifier.passed, tests: verifier.tests, exitCode: verifier.exitCode, timedOut: verifier.timedOut, stdout: verifier.stdout, stderr: verifier.stderr },
-		solved: processResult.exitCode === 0 && !processResult.timedOut && verifier.passed,
+		solved: finalPhase.exitCode === 0 && !(phase1.timedOut || (phase1b?.timedOut ?? false) || (phase2?.timedOut ?? false) || (phase3?.timedOut ?? false)) && verifier.passed,
+		freshContextVerifierReport: freshContextVerifierReport ?? null,
+		gate: {
+			attemptedStop: gateAttemptedStop,
+			phase1ToolCalls: gatePhase1ToolCalls,
+			continuationRan: gateContinuationRan,
+			continuationToolCalls: gateContinuationToolCalls,
+			continuationResumed: gateContinuationResumed,
+			overheadTokens: gateOverheadTokens,
+			overheadMs: Math.round(gateOverheadMs),
+		},
 	};
+}
+
+/**
+ * Extract the violation report from the fresh-context verifier's stdout.
+ * Takes everything after the last tool_execution_end that isn't "NO VIOLATIONS FOUND".
+ */
+function extractViolationReport(stdout) {
+	const lines = stdout.split("\n");
+	const reportLines = [];
+	let capturing = false;
+	for (const line of lines) {
+		if (line.includes("NO VIOLATIONS FOUND")) return null;
+		if (line.includes("specification violations") || line.includes("violates") || line.includes("invariant")) {
+			capturing = true;
+		}
+		if (capturing) reportLines.push(line);
+	}
+	if (reportLines.length === 0) {
+		// Fallback: grab the last substantial assistant message.
+		for (let i = lines.length - 1; i >= 0; i -= 1) {
+			if (lines[i].trim().length > 20) return lines[i].trim();
+		}
+		return null;
+	}
+	return reportLines.join("\n").trim();
 }
 
 async function main() {
@@ -278,26 +524,52 @@ async function main() {
 		if (!options[key]) throw new Error(`Missing --${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}.`);
 	}
 	const manifest = validateManifest(JSON.parse(await readFile(join(packageRoot, "diagnostics", "manifest.json"), "utf8")));
-	const tasks = manifest.tasks.filter((task) => options.split === "all" || task.split === options.split);
+	const tasks = manifest.tasks.filter((task) => {
+		if (options.split !== "all" && task.split !== options.split) return false;
+		if (options.tasks) {
+			const allowed = new Set(options.tasks.split(","));
+			if (!allowed.has(task.id)) return false;
+		}
+		return true;
+	});
 	if (tasks.length === 0) throw new Error(`No ${options.split} diagnostic tasks.`);
 	const runId = `${new Date().toISOString().replaceAll(":", "-")}_${randomUUID()}`;
 	const runRoot = resolve(packageRoot, ".eval", "diagnostics", runId);
+	const defaultAgentDir = join(homedir(), ".pi", "agent");
+	const requiredExtensions = resolveMandatedExtensionPaths(defaultAgentDir);
+	const agentDir = join(runRoot, "agent");
+	const sessionDir = join(runRoot, "session");
+	const authSource = join(defaultAgentDir, "auth.json");
+	if (!existsSync(authSource)) {
+		throw new Error(`Mandated evaluator credential missing: ${authSource}. Log into clinepass (pi /login or pi login) first.`);
+	}
+	await mkdir(agentDir, { recursive: true });
+	await copyFile(authSource, join(agentDir, "auth.json"));
+	const improvedTreatmentPath = await prepareTreatmentSupport(resolve(options.improvedRepo), runId);
+	const requiredProvenance = requiredExtensions.map(provenanceFor);
+	const treatmentProvenance = { path: improvedTreatmentPath, fileHash: hashFile(improvedTreatmentPath) };
+	const tasksProvenance = tasks.map((task) => ({ id: task.id, fixture: task.fixture, hash: hashTree(resolve(packageRoot, "diagnostics", task.fixture)) }));
 	const treatments = await Promise.all(
 		[
-			["stock", resolve(options.stockRepo)],
-			["improved", resolve(options.improvedRepo)],
-		].map(async ([name, repository]) => ({
+			["stock", resolve(options.stockRepo), null],
+			["improved", resolve(options.improvedRepo), improvedTreatmentPath],
+		].map(async ([name, repository, treatmentExtension]) => ({
 			name,
 			repository,
-			supportExtension: await prepareTreatmentSupport(repository, runId),
+			requiredExtensions,
+			treatmentExtension,
+			agentDir,
+			sessionDir,
 		})),
 	);
+	const interventionEnabled = options.intervention === "semantic-verify" || options.intervention === "fresh-context-verify";
+	const gateEnabled = options.intervention === "completion-evidence-gate";
 	const results = [];
 	for (const task of tasks) {
 		for (let repetition = 1; repetition <= options.repetitions; repetition += 1) {
-			for (const { name, repository, supportExtension } of treatments) {
-				console.error(`[diagnostic] ${task.id} repetition=${repetition} treatment=${name}`);
-				results.push(await runTreatment({ name, repository, task, repetition, runRoot, supportExtension, model: options.model, thinking: options.thinking, timeoutMs: options.timeoutMs }));
+			for (const treatment of treatments) {
+				console.error(`[diagnostic] ${task.id} repetition=${repetition} treatment=${treatment.name}`);
+				results.push(await runTreatment({ task, repetition, runRoot, model: options.model, thinking: options.thinking, timeoutMs: options.timeoutMs, interventionEnabled: interventionEnabled && treatment.name === "improved", gateEnabled: gateEnabled && treatment.name === "improved", ...treatment }));
 			}
 		}
 	}
@@ -312,7 +584,39 @@ async function main() {
 		predictedBehavior: options.prediction ?? null,
 		change: options.change ?? null,
 		tests: tasks.map(({ id, split }) => ({ id, split })),
-		protocol: { model: options.model, thinking: options.thinking, timeoutMs: options.timeoutMs, repetitions: options.repetitions, network: "disabled-in-tool-sandbox", tools: ["bash"] },
+		protocol: {
+			model: options.model,
+			thinking: options.thinking,
+			timeoutMs: options.timeoutMs,
+			repetitions: options.repetitions,
+			network: "disabled-in-tool-sandbox",
+			tools: "default-builtin",
+			skills: [],
+			env: "isolated (launcher --no-env strips ambient API keys)",
+			configFiles: { contextFiles: "disabled", promptTemplates: "disabled", themes: "disabled" },
+			intervention: interventionEnabled ? (options.intervention ?? "none") : "none",
+		},
+		runtime: {
+			agentDir,
+			environment: "isolated",
+			extensions: {
+				required: requiredExtensions,
+				ambientBlocked: true,
+				stockTreatment: null,
+				improvedTreatment: treatments.find((treatment) => treatment.name === "improved")?.treatmentExtension ?? null,
+			},
+			model: options.model,
+			thinking: options.thinking,
+			commit: await gitCommit(resolve(options.stockRepo)),
+		},
+		provenance: {
+			node: process.version,
+			platform: process.platform,
+			arch: process.arch,
+			requiredExtensions: requiredProvenance,
+			treatment: { stock: null, improved: treatmentProvenance },
+			tasks: tasksProvenance,
+		},
 		results,
 		regressions: [],
 		efficiency: null,
