@@ -21,7 +21,7 @@ export function createIsolatedBashOperations(): BashOperations {
 		async exec(command, cwd, { onData, signal, timeout }) {
 			const workspace = await realpath(cwd);
 			if (!(await stat(workspace)).isDirectory()) {
-				throw new Error("Working directory is not a directory: " + cwd);
+				throw new Error(`Working directory is not a directory: ${cwd}`);
 			}
 
 			// The workspace is bind-mounted at its own real path so the sandbox
@@ -139,7 +139,7 @@ export async function probeToolIsolation(cwd: string): Promise<void> {
 	const expectedCwd = await realpath(cwd);
 	if (pwd.exitCode !== 0 || sandboxCwd !== expectedCwd) {
 		throw new Error(
-			"Eval isolation probe: sandbox cwd " + sandboxCwd + " does not match the real workspace path " + expectedCwd,
+			`Eval isolation probe: sandbox cwd ${sandboxCwd} does not match the real workspace path ${expectedCwd}`,
 		);
 	}
 }

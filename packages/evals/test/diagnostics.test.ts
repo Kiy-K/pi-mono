@@ -101,7 +101,6 @@ describe("evaluation contract", () => {
 	});
 });
 
-it("keeps treatment settings identical except for repository and result identity", () => {
 it("keeps treatment settings identical except for repository, result identity, and the treatment extension", () => {
 	const common = {
 		workspace: "/tmp/task",
