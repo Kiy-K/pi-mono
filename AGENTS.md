@@ -164,6 +164,13 @@ Attribution:
 
 5. **If CI publish or announcement fails**: inspect the failed job. The publish helper is idempotent and skips package versions already present on npm; the announcement job rechecks availability before updating the R2 marker. Rerun the failed job or workflow after fixing CI or transient npm issues. Do not rerun `npm run release:patch` or `npm run release:minor` for the same version.
 
+## Evaluation Evidence
+
+- Pin source, build, evaluator/provider, task revision, and environment in every run manifest.
+- Compare stock/candidate under identical treatment; only the declared harness patch may differ.
+- Report `cancelled` and invalid infrastructure/provider runs as blockers, never capability evidence.
+- Approve only two-tier (diagnostic then DeepSWE) Pareto gains: no material correctness/reliability regression, and overhead must earn a measured benefit.
+
 ## User Override
 
 If the user's instructions conflict with any rule in this document, ask for explicit confirmation before overriding. Only then execute their instructions.

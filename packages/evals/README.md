@@ -33,6 +33,19 @@ Each invocation prints an ignored `.eval/` artifact directory. `runs.jsonl` inde
 native Pi session JSONL attachments under `sessions/`. These files may contain prompts, responses, source code, and tool
 output.
 
+## Evaluator preflight
+
+Current stock/candidate comparisons require the pinned ClinePass DeepSeek V4 Flash evaluator at medium thinking. Keep
+credentials and provider configuration outside this repository. Before any paid run, populate the non-secret artifact
+paths and SHA-256 values in `evaluator.json`, then run:
+
+```bash
+node scripts/evaluation-contract.mjs preflight --evaluator evaluator.json
+```
+
+A `blocked` result is a reproducibility blocker, not a failed or passed benchmark trial. Do not launch diagnostics or
+DeepSWE until preflight reports `ready`.
+
 ## Writing evals
 
 Follow [`vitest-evals`](https://github.com/getsentry/vitest-evals) for general suite, judge, assertion, and normalized
