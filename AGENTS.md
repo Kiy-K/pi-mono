@@ -169,13 +169,14 @@ Attribution:
 - Pin source, build, evaluator/provider, task revision, and environment in every run manifest.
 - Compare stock/candidate under identical treatment; only the declared harness patch may differ.
 - Report `cancelled` and invalid infrastructure/provider runs as blockers, never capability evidence.
-- Approve only two-tier (diagnostic then DeepSWE) Pareto gains: no material correctness/reliability regression, and overhead must earn a measured benefit.
+- Two-tier approval for capability changes: diagnostic tier first, then a stronger end-to-end evaluator (e.g. DeepSWE) when one is available and affordable; if unavailable, record the blocker and treat the diagnostic result as provisional.
 
 ## Harness Research Autonomy
 
 - Work autonomously on safe, reversible repository changes: investigation, experiments, edits, tests, commits, and subagent delegation need no approval.
 - Never perform dangerous or irreversible actions: no force-push, shared-history rewrite, destructive deletion, credential/secrets changes, external infrastructure mutation, release publishing, protected-branch merge, or billing/resource changes. If a path requires one, abandon that path and continue other safe work rather than waiting.
 - Delegate narrow subagents for independent exploration, verifier review, failure analysis, experiment design, or code review; synthesize their evidence before acting on it.
+- Do not stop because one experiment fails or a provider is temporarily unavailable: record the blocker, then continue other evidence-backed safe work. Stop only when no such work remains.
 
 ### Experiment Acceptance Criteria
 
