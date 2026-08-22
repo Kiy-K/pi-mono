@@ -269,8 +269,20 @@ async function runProcess(command, args, { cwd, env = process.env, timeoutMs }) 
 			timedOut = true;
 			stop();
 		}, timeoutMs);
-		child.stdout.on("data", (chunk) => stdout.push(chunk));
-		child.stderr.on("data", (chunk) => stderr.push(chunk));
+		// Cap buffers: a model in an output loop can exceed V8's max string
+		// length and crash the whole run. Keep the first 64MB; a rep that
+		// produces more output than that is pathological regardless.
+		const MAX_CAPTURE_BYTES = 64 * 1024 * 1024;
+		let stdoutBytes = 0;
+		let stderrBytes = 0;
+		child.stdout.on("data", (chunk) => {
+			stdoutBytes += chunk.length;
+			if (stdoutBytes <= MAX_CAPTURE_BYTES) stdout.push(chunk);
+		});
+		child.stderr.on("data", (chunk) => {
+			stderrBytes += chunk.length;
+			if (stderrBytes <= MAX_CAPTURE_BYTES) stderr.push(chunk);
+		});
 		child.once("error", (error) => {
 			clearTimeout(timer);
 			resolvePromise({ exitCode: null, signal: null, timedOut, error: error.message, stdout: "", stderr: "", totalMs: performance.now() - startedAt });
@@ -463,10 +475,12 @@ async function runTreatment({ name, repository, task, repetition, runRoot, requi
 		writeFile(join(dirname(workspace), "stderr.log"), [phase1, phase1b, phase2, phase3].filter(Boolean).map((p) => p.stderr).join("\n")),
 	]);
 	const phases = [phase1, phase1b, phase2, phase3].filter(Boolean);
-	// A rep where every phase consumed zero tokens settled on empty provider
-	// responses: no model output ever existed, so the outcome is infra noise,
-	// not task evidence.
-	const providerNoise = telemetry.totalTokens === 0;
+	// Infra noise, not task evidence: a phase that consumed zero tokens
+	// settled on empty provider responses, or ended mid-stream without a
+	// finish_reason ("Stream ended without finish_reason").
+	const providerNoise =
+		telemetry.totalTokens === 0 ||
+		phases.some((phase) => parsePiEvents(phase.stdout).finalError?.includes("Stream ended without finish_reason"));
 	return {
 		name,
 		taskId: task.id,
