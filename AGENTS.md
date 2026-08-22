@@ -171,6 +171,27 @@ Attribution:
 - Report `cancelled` and invalid infrastructure/provider runs as blockers, never capability evidence.
 - Approve only two-tier (diagnostic then DeepSWE) Pareto gains: no material correctness/reliability regression, and overhead must earn a measured benefit.
 
+## Harness Research Autonomy
+
+- Work autonomously on safe, reversible repository changes: investigation, experiments, edits, tests, commits, and subagent delegation need no approval.
+- Never perform dangerous or irreversible actions: no force-push, shared-history rewrite, destructive deletion, credential/secrets changes, external infrastructure mutation, release publishing, protected-branch merge, or billing/resource changes. If a path requires one, abandon that path and continue other safe work rather than waiting.
+- Delegate narrow subagents for independent exploration, verifier review, failure analysis, experiment design, or code review; synthesize their evidence before acting on it.
+
+### Experiment Acceptance Criteria
+
+1. Start from a concrete, evidence-backed failure mode or efficiency mechanism - not intuition.
+2. Test one primary mechanism at a time with the smallest viable intervention.
+3. Compare stock-vs-treatment with identical evaluator, task, and settings except for the treatment.
+4. Diagnostics first: normally 5+5 runs; promote promising or ambiguous results to 10+10.
+5. Cancelled, truncated, rate-limited, provider-error, or infrastructure-failed runs are invalid evidence, never capability failures.
+6. A diagnostic task's verifier is valid only when its private checks are proven to execute (a check that is defined but never invoked is dead code), an independent SPEC-faithful reference implementation passes it, and deliberately faulty mutants are rejected by named checks (attribute each catch to the check that caught it).
+7. Pareto gate before accepting any harness change: no material solve-rate/correctness regression; complexity must be justified by measured benefit; bounded overhead is acceptable only when capability improves; for efficiency changes, capability must stay non-inferior while the targeted cost/variance metric materially improves.
+8. Confirm accepted capability changes on a stronger end-to-end evaluator (e.g. DeepSWE) when practical.
+9. Do not optimize for one specific preview model; prefer mechanisms that plausibly generalize across evaluators.
+10. Do not add benchmark tasks merely to accumulate ceiling results; each new task must probe a distinct unresolved mechanism.
+11. Keep the harness minimal: reject interventions whose measured benefit does not justify their maintenance or behavioral complexity.
+12. Commit only coherent, validated improvements with tests and relevant documentation updated.
+
 ## User Override
 
 If the user's instructions conflict with any rule in this document, ask for explicit confirmation before overriding. Only then execute their instructions.
