@@ -438,6 +438,7 @@ export async function runTreatment({ name, repository, task, repetition, runRoot
 			phase1Verifier != null &&
 			!phase1Verifier.timedOut &&
 			!phase1Verifier.signal &&
+			phase1Verifier.exitCode != null &&
 			typeof phase1Verifier.tests === "number";
 		// Re-invoke with the same prompt in the same workspace (agent sees partial work).
 		phase1b = await runProcess(invocation.command, invocation.args, { cwd: invocation.cwd, env, timeoutMs });
