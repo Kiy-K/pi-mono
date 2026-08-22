@@ -651,8 +651,7 @@ async function main() {
 			tools: "default-builtin",
 			skills: [],
 			env: "isolated (launcher --no-env strips ambient API keys)",
-			intervention: gateEnabled ? "completion-evidence-gate" : interventionEnabled ? (options.intervention ?? "none") : "none",
-			promptAppend: options.promptAppend ?? null,
+			intervention: gateEnabled ? "completion-evidence-gate" : interventionEnabled ? (options.intervention ?? "none") : promptAppendEnabled ? "prompt-append" : "none",
 		},
 		runtime: {
 			agentDir: agentDirs,
