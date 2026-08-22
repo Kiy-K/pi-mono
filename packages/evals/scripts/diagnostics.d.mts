@@ -74,3 +74,50 @@ export function runVerifier(
 	stdout: string;
 	stderr: string;
 }>;
+
+export interface GateTelemetry {
+	attemptedStop: boolean;
+	phase1ToolCalls: number;
+	phase1Solved: boolean | null;
+	phase1VerifierValid: boolean;
+	continuationRan: boolean;
+	continuationToolCalls: number;
+	continuationResumed: boolean;
+	overheadTokens: number;
+	overheadMs: number;
+	phase1VerifierMs: number;
+}
+
+export declare function runTreatment(options: {
+	name: string;
+	repository: string;
+	task: DiagnosticTask;
+	repetition: number;
+	runRoot: string;
+	requiredExtensions: string[];
+	agentDir: string;
+	sessionDir: string;
+	model: string;
+	thinking: string;
+	timeoutMs: number;
+	interventionEnabled: boolean;
+	gateEnabled: boolean;
+	promptAppend?: string | null;
+}): Promise<{
+	name: string;
+	taskId: string;
+	split: string;
+	repetition: number;
+	repository: string;
+	commit: string;
+	process: { exitCode: number | null; signal: string | null; timedOut: boolean; totalMs: number };
+	telemetry: ReturnType<typeof parsePiEvents> & {
+		freshContextVerificationDetected: boolean;
+		freshContextRepairSucceeded: boolean;
+	};
+	verifier: { passed: boolean; tests?: number; exitCode: number | null; timedOut: boolean; stdout: string; stderr: string };
+	solved: boolean;
+	providerNoise: boolean;
+	freshContextVerifierReport: string | null;
+	gate: GateTelemetry;
+}>;

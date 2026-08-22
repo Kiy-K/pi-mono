@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { appendFile, copyFile, cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -380,7 +380,7 @@ export async function prepareTreatmentSupport(repository, runId) {
 	return join(supportRoot, "extensions", "isolated-bash.ts");
 }
 
-async function runTreatment({ name, repository, task, repetition, runRoot, requiredExtensions, agentDir, sessionDir, model, thinking, timeoutMs, interventionEnabled, gateEnabled, promptAppend }) {
+export async function runTreatment({ name, repository, task, repetition, runRoot, requiredExtensions, agentDir, sessionDir, model, thinking, timeoutMs, interventionEnabled, gateEnabled, promptAppend }) {
 	const workspace = join(runRoot, task.id, String(repetition), name, "workspace");
 	await prepareWorkspace(resolve(packageRoot, "diagnostics", task.fixture), workspace);
 	const invocation = buildPiInvocation({ repository, workspace, requiredExtensions, model, thinking, prompt: buildTreatmentPrompt(task.prompt, promptAppend) });
@@ -388,6 +388,8 @@ async function runTreatment({ name, repository, task, repetition, runRoot, requi
 		...process.env,
 		PI_CODING_AGENT_DIR: agentDir,
 		PI_CODING_AGENT_SESSION_DIR: sessionDir,
+		// Per-repetition scratch channel for hermetic gate tests (real pi ignores it).
+		PI_DIAGNOSTIC_STATE_FILE: join(runRoot, task.id, String(repetition), name, "phase-state"),
 	};
 	const verifierPath = resolve(packageRoot, "diagnostics", task.verifier);
 
@@ -398,11 +400,14 @@ async function runTreatment({ name, repository, task, repetition, runRoot, requi
 	// Completion-evidence gate: detect premature abort and optionally continue.
 	let gateAttemptedStop = false;
 	let gatePhase1ToolCalls = 0;
+	let gatePhase1Solved = null;
+	let gatePhase1VerifierValid = false;
 	let gateContinuationRan = false;
 	let gateContinuationToolCalls = 0;
 	let gateContinuationResumed = false;
 	let gateOverheadTokens = 0;
 	let gateOverheadMs = 0;
+	let gatePhase1SnapshotMs = 0;
 	let phase1b = null;
 	let phase1bTelemetry = null;
 	const gateTriggered = gateEnabled
@@ -412,12 +417,34 @@ async function runTreatment({ name, repository, task, repetition, runRoot, requi
 	if (gateTriggered) {
 		gateAttemptedStop = true;
 		gatePhase1ToolCalls = phase1Telemetry.toolCalls;
+		// Trigger-attribution evidence: snapshot whether phase 1 ALONE solved the
+		// task, by running the verifier on an ISOLATED COPY of the post-phase-1
+		// workspace. Must happen BEFORE the continuation: the continuation may
+		// edit the live workspace, so observing in place would confound attribution.
+		const phase1SnapshotWorkspace = `${workspace}-phase1-snapshot`;
+		const phase1SnapshotStartMs = Date.now();
+		let phase1Verifier = null;
+		try {
+			await cp(workspace, phase1SnapshotWorkspace, { recursive: true });
+			phase1Verifier = await runVerifier(verifierPath, phase1SnapshotWorkspace, 60_000);
+		} finally {
+			await rm(phase1SnapshotWorkspace, { recursive: true, force: true });
+		}
+		gatePhase1SnapshotMs += Date.now() - phase1SnapshotStartMs;
+		gatePhase1Solved = phase1Verifier?.passed === true;
+		// Validity means the verifier actually ANSWERED (parseable JSON payload,
+		// clean exit): a crash/timeout produces no evidence either way.
+		gatePhase1VerifierValid =
+			phase1Verifier != null &&
+			!phase1Verifier.timedOut &&
+			!phase1Verifier.signal &&
+			typeof phase1Verifier.tests === "number";
 		// Re-invoke with the same prompt in the same workspace (agent sees partial work).
 		phase1b = await runProcess(invocation.command, invocation.args, { cwd: invocation.cwd, env, timeoutMs });
 		phase1bTelemetry = parsePiEvents(phase1b.stdout);
 		gateContinuationRan = true;
 		gateContinuationToolCalls = phase1bTelemetry.toolCalls;
-		gateContinuationResumed = phase1bTelemetry.toolCalls > 0;
+		gateContinuationResumed = gatePhase1VerifierValid && !gatePhase1Solved && phase1bTelemetry.toolCalls > 0;
 		gateOverheadTokens = phase1bTelemetry.totalTokens;
 		gateOverheadMs = phase1b.totalMs;
 	}
@@ -482,7 +509,7 @@ async function runTreatment({ name, repository, task, repetition, runRoot, requi
 
 	// Verifier runs once on the final workspace state (after repair if it ran).
 	const verifier = await runVerifier(verifierPath, workspace, 60_000);
-	const totalMs = phase1.totalMs + (phase1b?.totalMs ?? 0) + (phase2?.totalMs ?? 0) + (phase3?.totalMs ?? 0);
+	const totalMs = phase1.totalMs + (phase1b?.totalMs ?? 0) + (phase2?.totalMs ?? 0) + (phase3?.totalMs ?? 0) + gatePhase1SnapshotMs;
 	const finalPhase = phase3 ?? phase2 ?? phase1b ?? phase1;
 
 	await Promise.all([
@@ -521,11 +548,14 @@ async function runTreatment({ name, repository, task, repetition, runRoot, requi
 		gate: {
 			attemptedStop: gateAttemptedStop,
 			phase1ToolCalls: gatePhase1ToolCalls,
+			phase1Solved: gatePhase1Solved,
+			phase1VerifierValid: gatePhase1VerifierValid,
 			continuationRan: gateContinuationRan,
 			continuationToolCalls: gateContinuationToolCalls,
 			continuationResumed: gateContinuationResumed,
 			overheadTokens: gateOverheadTokens,
 			overheadMs: Math.round(gateOverheadMs),
+			phase1VerifierMs: Math.round(gatePhase1SnapshotMs),
 		},
 	};
 }
