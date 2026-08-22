@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	buildPiInvocation,
+	classifyProviderNoise,
 	parsePiEvents,
 	prepareTreatmentSupport,
 	prepareWorkspace,
@@ -232,4 +233,21 @@ it("runs verifiers outside the task workspace and preserves their JSON result", 
 
 	expect(result).toMatchObject({ passed: true, tests: 1, exitCode: 0, timedOut: false });
 	expect(await readFile(join(workspace, "answer.txt"), "utf8")).toBe("42\n");
+});
+
+describe("provider noise classification", () => {
+	it("flags zero-token reps as noise", () => {
+		expect(classifyProviderNoise(0, [])).toBe(true);
+		expect(classifyProviderNoise(0, [undefined])).toBe(true);
+	});
+
+	it("flags stream-truncated phases as noise regardless of token count", () => {
+		expect(classifyProviderNoise(5000, ["Stream ended without finish_reason"])).toBe(true);
+		expect(classifyProviderNoise(5000, [undefined, "429: quota exceeded"])).toBe(false);
+	});
+
+	it("treats normal completions as valid evidence", () => {
+		expect(classifyProviderNoise(12_345, [undefined, "stop"])).toBe(false);
+		expect(classifyProviderNoise(1, [])).toBe(false);
+	});
 });

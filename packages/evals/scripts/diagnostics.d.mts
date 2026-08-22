@@ -33,6 +33,8 @@ export function provenanceFor(extensionPath: string): { path: string; name: stri
 
 export function hashFile(file: string): string;
 
+export function classifyProviderNoise(totalTokens: number, finalErrors: Array<string | undefined>): boolean;
+
 export function parsePiEvents(stdout: string): {
 	eventCount: number;
 	malformedLines: number;

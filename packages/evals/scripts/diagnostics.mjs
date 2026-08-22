@@ -475,12 +475,7 @@ async function runTreatment({ name, repository, task, repetition, runRoot, requi
 		writeFile(join(dirname(workspace), "stderr.log"), [phase1, phase1b, phase2, phase3].filter(Boolean).map((p) => p.stderr).join("\n")),
 	]);
 	const phases = [phase1, phase1b, phase2, phase3].filter(Boolean);
-	// Infra noise, not task evidence: a phase that consumed zero tokens
-	// settled on empty provider responses, or ended mid-stream without a
-	// finish_reason ("Stream ended without finish_reason").
-	const providerNoise =
-		telemetry.totalTokens === 0 ||
-		phases.some((phase) => parsePiEvents(phase.stdout).finalError?.includes("Stream ended without finish_reason"));
+	const providerNoise = classifyProviderNoise(telemetry.totalTokens, phases.map((phase) => parsePiEvents(phase.stdout).finalError));
 	return {
 		name,
 		taskId: task.id,
@@ -518,6 +513,16 @@ async function runTreatment({ name, repository, task, repetition, runRoot, requi
 			overheadMs: Math.round(gateOverheadMs),
 		},
 	};
+}
+
+/**
+ * Infra noise, not task evidence: a rep where every phase consumed zero
+ * tokens settled on empty provider responses, or a phase ended mid-stream
+ * without a finish_reason ("Stream ended without finish_reason").
+ */
+export function classifyProviderNoise(totalTokens, finalErrors) {
+	if (totalTokens === 0) return true;
+	return finalErrors.some((error) => typeof error === "string" && error.includes("Stream ended without finish_reason"));
 }
 
 /**
