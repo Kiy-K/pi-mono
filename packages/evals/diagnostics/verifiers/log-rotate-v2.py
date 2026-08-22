@@ -107,6 +107,25 @@ def rotate_missing_active_shifts_existing():
 check("rotate without active file still shifts", rotate_missing_active_shifts_existing)
 
 
+def sparse_high_suffix_dropped():
+    # SPEC: "Explicitly delete every existing path.j with j > keep." The suffix
+    # set is sparse in general; a slot far above keep (here .5 with keep=2) must
+    # be deleted even when no contiguous chain reaches it.
+    with tempfile.TemporaryDirectory() as tmp:
+        base = pathlib.Path(tmp) / "journal.jsonl"
+        base.with_name(base.name + ".1").write_text("one", encoding="utf-8")
+        base.with_name(base.name + ".5").write_text("far", encoding="utf-8")
+        rotated = rotation.rotate(str(base), 2)
+        # Missing active file: .1 shifts to .2, slot 1 stays empty, .5 is deleted.
+        assert_equal(rotated, ["journal.jsonl.2"], "rotated list")
+        assert_equal(base.with_name(base.name + ".2").read_text(), "one", "shifted slot")
+        if base.with_name(base.name + ".5").exists():
+            raise AssertionError("sparse slot .5 with suffix > keep must be deleted")
+
+
+check("sparse high suffix dropped", sparse_high_suffix_dropped)
+
+
 def append_with_rotation_validates():
     journal = journal_mod.Journal("/nonexistent/journal.jsonl")
     assert_message(lambda: rotation.append_with_rotation(journal, {}, 0, 3), "max_bytes must be >= 1", "max_bytes 0")
@@ -114,6 +133,25 @@ def append_with_rotation_validates():
 
 
 check("append_with_rotation validates parameters", append_with_rotation_validates)
+
+
+def append_rotates_at_boundary_and_returns_rotate_list():
+    # SPEC: append_with_rotation rotates exactly when should_rotate fires
+    # (size >= max_bytes) and "returns the same list rotate returned".
+    with tempfile.TemporaryDirectory() as tmp:
+        base = pathlib.Path(tmp) / "journal.jsonl"
+        base.with_name(base.name + ".1").write_text("old-1", encoding="utf-8")
+        journal = journal_mod.Journal(str(base))
+        journal.append({"n": 1})
+        boundary = journal.size_bytes()
+        returned = rotation.append_with_rotation(journal, {"n": 2}, boundary, 3)
+        if returned != ["journal.jsonl.1", "journal.jsonl.2"]:
+            raise AssertionError(f"append must return exactly rotate's list, got {returned}")
+        if not pathlib.Path(str(base) + ".2").exists():
+            raise AssertionError("chain shift must reach slot 2 after boundary append")
+
+
+check("append rotates at boundary and returns rotate list", append_rotates_at_boundary_and_returns_rotate_list)
 
 
 def append_preserves_entries_across_rotations():
