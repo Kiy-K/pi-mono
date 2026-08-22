@@ -537,7 +537,11 @@ async function runTreatment({ name, repository, task, repetition, runRoot, requi
  */
 export function classifyProviderNoise(totalTokens, finalErrors) {
 	if (totalTokens === 0) return true;
-	return finalErrors.some((error) => typeof error === "string" && error.includes("Stream ended without finish_reason"));
+	return finalErrors.some(
+		(error) =>
+			typeof error === "string" &&
+			(error.includes("Stream ended without finish_reason") || /^[45]\d\d(\s|$|:)/.test(error.trim())),
+	);
 }
 
 /**

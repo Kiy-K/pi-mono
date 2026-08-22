@@ -233,7 +233,13 @@ describe("provider noise classification", () => {
 
 	it("flags stream-truncated phases as noise regardless of token count", () => {
 		expect(classifyProviderNoise(5000, ["Stream ended without finish_reason"])).toBe(true);
-		expect(classifyProviderNoise(5000, [undefined, "429: quota exceeded"])).toBe(false);
+	});
+
+	it("flags provider HTTP 4xx/5xx deaths as noise regardless of token count", () => {
+		expect(classifyProviderNoise(60_000, ["503 status code (no body)"])).toBe(true);
+		expect(classifyProviderNoise(60_000, [undefined, "500 Internal Server Error"])).toBe(true);
+		expect(classifyProviderNoise(60_000, ["429 INFERENCE_CAP_ERROR"])).toBe(true);
+		expect(classifyProviderNoise(60_000, ["429: quota exceeded"])).toBe(true);
 	});
 
 	it("treats normal completions as valid evidence", () => {
