@@ -144,7 +144,23 @@ export function validateManifest(manifest) {
 	return manifest;
 }
 
-export function buildPiInvocation({ repository, workspace, requiredExtensions, treatmentExtension, model, thinking, prompt }) {
+/**
+ * Join a task prompt with the improved-arm intervention hint. Pure so the
+ * arm-selection contract is unit-testable without launching a run.
+ */
+export function buildTreatmentPrompt(prompt, promptAppend) {
+	return promptAppend ? `${prompt}\n\n${promptAppend}` : prompt;
+}
+
+/**
+ * Arm selection for the prompt-append intervention: only the improved arm
+ * receives the hint. Pure so the asymmetry contract is unit-testable.
+ */
+export function selectPromptAppend(treatmentName, promptAppend) {
+	return treatmentName === "improved" && promptAppend ? promptAppend : null;
+}
+
+export function buildPiInvocation({ repository, workspace, requiredExtensions, model, thinking, prompt }) {
 	const separator = model.indexOf("/");
 	if (separator <= 0 || separator === model.length - 1) throw new Error("Model must be provider/model.");
 	if (!Array.isArray(requiredExtensions) || requiredExtensions.length === 0) {
@@ -163,7 +179,6 @@ export function buildPiInvocation({ repository, workspace, requiredExtensions, t
 			"--no-env",
 			"--no-extensions",
 			...requiredExtensions.flatMap((extension) => ["--extension", extension]),
-			...(treatmentExtension ? ["--extension", treatmentExtension] : []),
 			"--no-skills",
 			"--no-context-files",
 			"--no-prompt-templates",
@@ -365,10 +380,10 @@ export async function prepareTreatmentSupport(repository, runId) {
 	return join(supportRoot, "extensions", "isolated-bash.ts");
 }
 
-async function runTreatment({ name, repository, task, repetition, runRoot, requiredExtensions, treatmentExtension, agentDir, sessionDir, model, thinking, timeoutMs, interventionEnabled, gateEnabled, promptAppend }) {
+async function runTreatment({ name, repository, task, repetition, runRoot, requiredExtensions, agentDir, sessionDir, model, thinking, timeoutMs, interventionEnabled, gateEnabled, promptAppend }) {
 	const workspace = join(runRoot, task.id, String(repetition), name, "workspace");
 	await prepareWorkspace(resolve(packageRoot, "diagnostics", task.fixture), workspace);
-	const invocation = buildPiInvocation({ repository, workspace, requiredExtensions, treatmentExtension, model, thinking, prompt: promptAppend ? `${task.prompt}\n\n${promptAppend}` : task.prompt });
+	const invocation = buildPiInvocation({ repository, workspace, requiredExtensions, model, thinking, prompt: buildTreatmentPrompt(task.prompt, promptAppend) });
 	const env = {
 		...process.env,
 		PI_CODING_AGENT_DIR: agentDir,
@@ -424,7 +439,7 @@ async function runTreatment({ name, repository, task, repetition, runRoot, requi
 		// Verifier runs in its own workspace (copy of fixture), reads implementation via absolute paths.
 		const verifierWorkspace = join(runRoot, task.id, String(repetition), `${name}-verifier`, "workspace");
 		await prepareWorkspace(resolve(packageRoot, "diagnostics", task.fixture), verifierWorkspace);
-		const phase2Invocation = buildPiInvocation({ repository, workspace: verifierWorkspace, requiredExtensions, treatmentExtension, model, thinking, prompt: verifyPrompt });
+		const phase2Invocation = buildPiInvocation({ repository, workspace: verifierWorkspace, requiredExtensions, model, thinking, prompt: verifyPrompt });
 		phase2 = await runProcess(phase2Invocation.command, phase2Invocation.args, { cwd: phase2Invocation.cwd, env, timeoutMs });
 		phase2Telemetry = parsePiEvents(phase2.stdout);
 
@@ -439,7 +454,7 @@ async function runTreatment({ name, repository, task, repetition, runRoot, requi
 		// Phase 3: if violations detected, give original agent one repair opportunity.
 		if (freshContextVerifierDetected && freshContextVerifierReport) {
 			const repairPrompt = REPAIR_PROMPT_TEMPLATE.replace("{VIOLATION_REPORT}", freshContextVerifierReport);
-			const phase3Invocation = buildPiInvocation({ repository, workspace, requiredExtensions, treatmentExtension, model, thinking, prompt: repairPrompt });
+			const phase3Invocation = buildPiInvocation({ repository, workspace, requiredExtensions, model, thinking, prompt: repairPrompt });
 			phase3 = await runProcess(phase3Invocation.command, phase3Invocation.args, { cwd: phase3Invocation.cwd, env, timeoutMs });
 			phase3Telemetry = parsePiEvents(phase3.stdout);
 		}
@@ -488,7 +503,7 @@ async function runTreatment({ name, repository, task, repetition, runRoot, requi
 			thinking,
 			agentDir,
 			environment: "isolated (launcher --no-env strips ambient API keys)",
-			extensions: { required: requiredExtensions, treatment: treatmentExtension ?? null },
+			extensions: { required: requiredExtensions },
 			skills: [],
 			tools: "default-builtin",
 			configFiles: { contextFiles: "disabled", promptTemplates: "disabled", themes: "disabled" },
@@ -555,6 +570,9 @@ async function main() {
 	for (const key of ["stockRepo", "improvedRepo", "model"]) {
 		if (!options[key]) throw new Error(`Missing --${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}.`);
 	}
+	if (options.promptAppend && options.intervention && options.intervention !== "none") {
+		throw new Error("--prompt-append and --intervention are mutually exclusive: one treatment mechanism per experiment.");
+	}
 	const manifest = validateManifest(JSON.parse(await readFile(join(packageRoot, "diagnostics", "manifest.json"), "utf8")));
 	const tasks = manifest.tasks.filter((task) => {
 		if (options.split !== "all" && task.split !== options.split) return false;
@@ -597,7 +615,6 @@ async function main() {
 			name,
 			repository,
 			requiredExtensions: armExtensions,
-			treatmentExtension: null,
 			agentDir: agentDirs[name],
 			sessionDir: sessionDirs[name],
 		})),
@@ -610,7 +627,7 @@ async function main() {
 		for (let repetition = 1; repetition <= options.repetitions; repetition += 1) {
 			for (const treatment of treatments) {
 				console.error(`[diagnostic] ${task.id} repetition=${repetition} treatment=${treatment.name}`);
-				results.push(await runTreatment({ task, repetition, runRoot, model: options.model, thinking: options.thinking, timeoutMs: options.timeoutMs, interventionEnabled: interventionEnabled && treatment.name === "improved", gateEnabled: gateEnabled && treatment.name === "improved", promptAppend: options.promptAppend && treatment.name === "improved" ? options.promptAppend : null, ...treatment }));
+				results.push(await runTreatment({ task, repetition, runRoot, model: options.model, thinking: options.thinking, timeoutMs: options.timeoutMs, interventionEnabled: interventionEnabled && treatment.name === "improved", gateEnabled: gateEnabled && treatment.name === "improved", promptAppend: selectPromptAppend(treatment.name, options.promptAppend), ...treatment }));
 			}
 		}
 	}

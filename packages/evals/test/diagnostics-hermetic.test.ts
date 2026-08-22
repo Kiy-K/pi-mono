@@ -80,14 +80,16 @@ describe("hermetic invocation", () => {
 		expect(invocation.args).not.toContain("--tools");
 	});
 
-	it("never leaks a treatment extension into a stock invocation", () => {
-		const stock = buildPiInvocation(base);
-		const improved = buildPiInvocation({ ...base, treatmentExtension: "/tmp/support/isolated-bash.ts" });
+	it("applies identical extension lists to every invocation", () => {
+		const shared = [...base.requiredExtensions, "/tmp/support/isolated-bash.ts"];
+		const stock = buildPiInvocation({ ...base, requiredExtensions: shared });
+		const improved = buildPiInvocation({ ...base, requiredExtensions: shared });
 
-		expect(stock.args.join(" ")).not.toContain("isolated-bash");
-		expect(stock.args.filter((arg) => arg === "--extension")).toHaveLength(2);
+		// The isolation support extension is measurement infrastructure: it loads
+		// on BOTH arms exactly once each, so args differ only by repository.
+		expect(stock.args.filter((arg) => arg === "/tmp/support/isolated-bash.ts")).toHaveLength(1);
+		expect(improved.args.filter((arg) => arg === "/tmp/support/isolated-bash.ts")).toHaveLength(1);
 		expect(improved.args.filter((arg) => arg === "--extension")).toHaveLength(3);
-		expect(improved.args).toContain("/tmp/support/isolated-bash.ts");
 	});
 
 	it("is fully determined by its inputs, so dummy ambient config cannot change it", () => {

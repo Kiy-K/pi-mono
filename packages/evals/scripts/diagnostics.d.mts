@@ -13,11 +13,14 @@ export interface DiagnosticManifest {
 
 export function validateManifest(manifest: unknown): DiagnosticManifest;
 
+export function buildTreatmentPrompt(prompt: string, promptAppend?: string | null): string;
+
+export function selectPromptAppend(treatmentName: string, promptAppend?: string | null): string | null;
+
 export function buildPiInvocation(options: {
 	repository: string;
 	workspace: string;
 	requiredExtensions: string[];
-	treatmentExtension?: string;
 	model: string;
 	thinking: string;
 	prompt: string;

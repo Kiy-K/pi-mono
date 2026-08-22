@@ -6,11 +6,13 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	buildPiInvocation,
+	buildTreatmentPrompt,
 	classifyProviderNoise,
 	parsePiEvents,
 	prepareTreatmentSupport,
 	prepareWorkspace,
 	runVerifier,
+	selectPromptAppend,
 	validateManifest,
 } from "../scripts/diagnostics.mjs";
 import {
@@ -102,45 +104,33 @@ describe("evaluation contract", () => {
 	});
 });
 
-it("keeps treatment settings identical except for repository, result identity, and the treatment extension", () => {
+it("keeps invocations identical except for repository when arms share the same inputs", () => {
 	const common = {
 		workspace: "/tmp/task",
-		requiredExtensions: ["/tmp/clinepass", "/tmp/fabric"],
+		requiredExtensions: ["/tmp/clinepass", "/tmp/fabric", "/tmp/support/isolated-bash.ts"],
 		model: "openai-codex/gpt-5.3-codex-spark",
 		thinking: "medium",
 		prompt: "Fix the bug and run the tests.",
 	};
 	const stock = buildPiInvocation({ ...common, repository: "/tmp/stock" });
-	const improved = buildPiInvocation({
-		...common,
-		repository: "/tmp/improved",
-		treatmentExtension: "/tmp/support/isolated-bash.ts",
-	});
-	const improvedWithoutTreatment = buildPiInvocation({ ...common, repository: "/tmp/improved" });
+	const improved = buildPiInvocation({ ...common, repository: "/tmp/improved" });
 
 	// Command differs only by repo; cwd identical.
 	expect(stock.cwd).toBe(improved.cwd);
 	expect(stock.command).toBe("/tmp/stock/pi-test.sh");
 	expect(improved.command).toBe("/tmp/improved/pi-test.sh");
 
-	// Stock never receives the treatment extension; improved carries it exactly once.
-	expect(stock.args).not.toContain("/tmp/support/isolated-bash.ts");
-	expect(improved.args.filter((arg) => arg === "/tmp/support/isolated-bash.ts")).toHaveLength(1);
-
-	// The two mandated extensions are pinned in every invocation (improved adds a third, its treatment).
-	for (const invocation of [stock, improvedWithoutTreatment]) {
-		expect(invocation.args.filter((arg) => arg === "--extension")).toHaveLength(2);
+	// All three extensions (two mandated + isolation support) are pinned in every invocation.
+	for (const invocation of [stock, improved]) {
+		expect(invocation.args.filter((arg) => arg === "--extension")).toHaveLength(3);
 		expect(invocation.args).toContain("/tmp/clinepass");
 		expect(invocation.args).toContain("/tmp/fabric");
+		expect(invocation.args).toContain("/tmp/support/isolated-bash.ts");
 	}
-	expect(improved.args.filter((arg) => arg === "--extension")).toHaveLength(3);
-	expect(improved.args).toContain("/tmp/clinepass");
-	expect(improved.args).toContain("/tmp/fabric");
 
-	// With treatment disabled both treatments are identical (excluding repository).
-	const stockNoTreatment = buildPiInvocation({ ...common, repository: "/tmp/stock" });
-	expect(improvedWithoutTreatment.args).toEqual(stockNoTreatment.args);
-	expect(improvedWithoutTreatment.cwd).toBe(stockNoTreatment.cwd);
+	// Identical inputs produce identical args (excluding repository).
+	const stockAgain = buildPiInvocation({ ...common, repository: "/tmp/stock" });
+	expect(stock.args).toEqual(stockAgain.args);
 });
 
 it("prepares each task as a clean committed Git repository", async () => {
@@ -249,5 +239,46 @@ describe("provider noise classification", () => {
 	it("treats normal completions as valid evidence", () => {
 		expect(classifyProviderNoise(12_345, [undefined, "stop"])).toBe(false);
 		expect(classifyProviderNoise(1, [])).toBe(false);
+	});
+});
+
+describe("prompt append intervention", () => {
+	it("joins the hint to the prompt when provided", () => {
+		expect(buildTreatmentPrompt("do it", "HINT TEXT")).toBe("do it\n\nHINT TEXT");
+	});
+
+	it("returns the prompt unchanged without a hint", () => {
+		expect(buildTreatmentPrompt("do it", null)).toBe("do it");
+		expect(buildTreatmentPrompt("do it", undefined)).toBe("do it");
+	});
+
+	it("selects the append only for the improved arm", () => {
+		expect(selectPromptAppend("improved", "HINT TEXT")).toBe("HINT TEXT");
+		expect(selectPromptAppend("stock", "HINT TEXT")).toBeNull();
+		expect(selectPromptAppend("improved", null)).toBeNull();
+		expect(selectPromptAppend("stock", null)).toBeNull();
+	});
+
+	it("rejects combining --prompt-append with --intervention", async () => {
+		await expect(
+			execFileAsync(
+				process.execPath,
+				[
+					"scripts/diagnostics.mjs",
+					"run",
+					"--stock-repo",
+					"/nonexistent-a",
+					"--improved-repo",
+					"/nonexistent-b",
+					"--model",
+					"opencode/x-preview-f-free",
+					"--prompt-append",
+					"HINT TEXT",
+					"--intervention",
+					"semantic-verify",
+				],
+				{ cwd: join(import.meta.dirname, "..") },
+			),
+		).rejects.toThrow(/mutually exclusive/);
 	});
 });
