@@ -50,3 +50,4 @@ collect.sh
 # Fabric runtime state
 .pi/fabric/mcp-cache.json
 .pi/fabric/mesh/state.json
+__pycache__/
