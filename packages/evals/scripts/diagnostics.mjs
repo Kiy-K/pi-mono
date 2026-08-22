@@ -365,10 +365,10 @@ export async function prepareTreatmentSupport(repository, runId) {
 	return join(supportRoot, "extensions", "isolated-bash.ts");
 }
 
-async function runTreatment({ name, repository, task, repetition, runRoot, requiredExtensions, treatmentExtension, agentDir, sessionDir, model, thinking, timeoutMs, interventionEnabled, gateEnabled }) {
+async function runTreatment({ name, repository, task, repetition, runRoot, requiredExtensions, treatmentExtension, agentDir, sessionDir, model, thinking, timeoutMs, interventionEnabled, gateEnabled, promptAppend }) {
 	const workspace = join(runRoot, task.id, String(repetition), name, "workspace");
 	await prepareWorkspace(resolve(packageRoot, "diagnostics", task.fixture), workspace);
-	const invocation = buildPiInvocation({ repository, workspace, requiredExtensions, treatmentExtension, model, thinking, prompt: task.prompt });
+	const invocation = buildPiInvocation({ repository, workspace, requiredExtensions, treatmentExtension, model, thinking, prompt: promptAppend ? `${task.prompt}\n\n${promptAppend}` : task.prompt });
 	const env = {
 		...process.env,
 		PI_CODING_AGENT_DIR: agentDir,
@@ -581,14 +581,14 @@ async function main() {
 			await copyFile(authSource, join(dir, "auth.json"));
 		}),
 	);
-	const improvedTreatmentPath = await prepareTreatmentSupport(resolve(options.improvedRepo), runId);
-	const requiredProvenance = requiredExtensions.map(provenanceFor);
-	const treatmentProvenance = { path: improvedTreatmentPath, fileHash: hashFile(improvedTreatmentPath) };
-	const tasksProvenance = tasks.map((task) => ({ id: task.id, fixture: task.fixture, hash: hashTree(resolve(packageRoot, "diagnostics", task.fixture)) }));
+	const isolationSupportPath = await prepareTreatmentSupport(resolve(options.improvedRepo), runId);
+	const isolationSupportProvenance = { path: isolationSupportPath, fileHash: hashFile(isolationSupportPath) };
 	// Arms must be mechanically identical except for the mechanism under test:
 	// every extension (including the sandbox treatment support) loads on BOTH arms.
 	// The gate experiment differs from stock only by --intervention completion-evidence-gate.
-	const armExtensions = [...requiredExtensions, improvedTreatmentPath];
+	const armExtensions = [...requiredExtensions, isolationSupportPath];
+	const requiredProvenance = requiredExtensions.map(provenanceFor);
+	const tasksProvenance = tasks.map((task) => ({ id: task.id, fixture: task.fixture, hash: hashTree(resolve(packageRoot, "diagnostics", task.fixture)) }));
 	const treatments = await Promise.all(
 		[
 			["stock", resolve(options.stockRepo)],
@@ -602,6 +602,7 @@ async function main() {
 			sessionDir: sessionDirs[name],
 		})),
 	);
+	const promptAppendEnabled = Boolean(options.promptAppend);
 	const interventionEnabled = options.intervention === "semantic-verify" || options.intervention === "fresh-context-verify";
 	const gateEnabled = options.intervention === "completion-evidence-gate";
 	const results = [];
@@ -609,7 +610,7 @@ async function main() {
 		for (let repetition = 1; repetition <= options.repetitions; repetition += 1) {
 			for (const treatment of treatments) {
 				console.error(`[diagnostic] ${task.id} repetition=${repetition} treatment=${treatment.name}`);
-				results.push(await runTreatment({ task, repetition, runRoot, model: options.model, thinking: options.thinking, timeoutMs: options.timeoutMs, interventionEnabled: interventionEnabled && treatment.name === "improved", gateEnabled: gateEnabled && treatment.name === "improved", ...treatment }));
+				results.push(await runTreatment({ task, repetition, runRoot, model: options.model, thinking: options.thinking, timeoutMs: options.timeoutMs, interventionEnabled: interventionEnabled && treatment.name === "improved", gateEnabled: gateEnabled && treatment.name === "improved", promptAppend: options.promptAppend && treatment.name === "improved" ? options.promptAppend : null, ...treatment }));
 			}
 		}
 	}
@@ -633,15 +634,16 @@ async function main() {
 			tools: "default-builtin",
 			skills: [],
 			env: "isolated (launcher --no-env strips ambient API keys)",
-			configFiles: { contextFiles: "disabled", promptTemplates: "disabled", themes: "disabled" },
 			intervention: gateEnabled ? "completion-evidence-gate" : interventionEnabled ? (options.intervention ?? "none") : "none",
+			promptAppend: options.promptAppend ?? null,
 		},
 		runtime: {
 			agentDir: agentDirs,
 			sessionDir: sessionDirs,
 			environment: "isolated",
 			extensions: {
-				required: requiredExtensions,
+				required: requiredProvenance,
+				isolationSupport: isolationSupportProvenance,
 				armExtensions: armExtensions.map(provenanceFor),
 				ambientBlocked: true,
 			},
@@ -653,8 +655,7 @@ async function main() {
 			node: process.version,
 			platform: process.platform,
 			arch: process.arch,
-			requiredExtensions: requiredProvenance,
-			treatment: { stock: null, improved: treatmentProvenance },
+			treatment: promptAppendEnabled ? { stock: null, improved: { promptAppend: options.promptAppend } } : { stock: null, improved: null },
 			tasks: tasksProvenance,
 		},
 		results,
