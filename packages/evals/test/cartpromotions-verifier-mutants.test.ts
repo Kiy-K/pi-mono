@@ -137,7 +137,14 @@ const MUTANTS: Record<string, readonly [find: string, replace: string]> = {
 	bogo_y_unvalidated: ["or not isinstance(y, int) or x < 1 or y < 1", "or not isinstance(x, int) or x < 1"],
 	bogo_y_lt1_unvalidated: ["or x < 1 or y < 1", "or x < 1"],
 	discount_cap_missing: ["total = min(total, cart.subtotal_cents())", "pass"],
-	percent_description_off: ['f"{promo[1]}% OFF"', 'f"{promo[1]} percent OFF"'],
+	str_percent_coerced: [
+		'if not isinstance(percent, (int, float)) or isinstance(percent, bool) or not (0 < percent <= 100):\n        raise PromotionError("percent must be in (0, 100]")',
+		'if isinstance(percent, str):\n        percent = 10\n    if not isinstance(percent, (int, float)) or isinstance(percent, bool) or not (0 < percent <= 100):\n        raise PromotionError("percent must be in (0, 100]")',
+	],
+	none_percent_skips_discount: [
+		'if not isinstance(percent, (int, float)) or isinstance(percent, bool) or not (0 < percent <= 100):\n        raise PromotionError("percent must be in (0, 100]")',
+		"if percent is None:\n        return 0\n    if not isinstance(percent, (int, float)) or isinstance(percent, bool) or not (0 < percent <= 100):\n        raise PromotionError",
+	],
 	percent_zero_accepted: ["not (0 < percent <= 100)", "not (percent < 0)"],
 	percent_over_100_accepted: ["not (0 < percent <= 100)", "not (0 < percent)"],
 	float_percent_rejected: ["(int, float)", "int"],

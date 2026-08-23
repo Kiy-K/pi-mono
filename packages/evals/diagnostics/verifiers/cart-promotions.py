@@ -84,6 +84,15 @@ def percentage_over_100_rejected():
 check("percent 101 rejected", percentage_over_100_rejected)
 
 
+def percentage_non_numeric_rejected():
+    """SPEC: percent must be int or float; anything else raises PromotionError."""
+    assert_message(lambda: promotions.percentage_discount(fresh_cart(), "50"), "percent must be in (0, 100]", "str percent")
+    assert_message(lambda: promotions.percentage_discount(fresh_cart(), None), "percent must be in (0, 100]", "None percent")
+
+
+check("non-numeric percent rejected with PromotionError", percentage_non_numeric_rejected)
+
+
 def percentage_empty_cart():
     assert_equal(promotions.percentage_discount(cart_mod.Cart(), 10), 0, "empty cart")
 
