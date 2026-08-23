@@ -62,6 +62,18 @@ def coerce_count_accuracy():
 
 check("coerce counts only files with int port", coerce_count_accuracy)
 
+
+def coerce_skips_non_int_ports():
+    with tempfile.TemporaryDirectory() as d:
+        write_file(d, "a.json", {"host": "x", "port": "80"})
+        write_file(d, "b.json", {"host": "y", "port": True})
+        stats = migrate_mod.migrate(d)
+        assert_equal(stats["ports_coerced"], 0, "string and bool ports not coerced")
+        assert_equal(read_file(d, "a.json")["port"], "80", "string port untouched")
+
+
+check("coerce counts only int ports not strings or bools", coerce_skips_non_int_ports)
+
 def enabled_already_present_not_overwritten():
     with tempfile.TemporaryDirectory() as d:
         write_file(d, "x.json", {"host": "h", "port": 1, "enabled": False})
@@ -103,6 +115,16 @@ def version_always_added():
         write_file(d, "v.json", {"host": "h"})
         migrate_mod.migrate(d)
         assert_equal(read_file(d, "v.json")["version"], 2, "version 2 added")
+
+
+def version_overwrites_existing():
+    with tempfile.TemporaryDirectory() as d:
+        write_file(d, "v.json", {"name": "x", "version": 1})
+        migrate_mod.migrate(d)
+        assert_equal(read_file(d, "v.json")["version"], 2, "existing version overwritten to 2")
+
+
+check("version overwrites existing value", version_overwrites_existing)
 
 check("version 2 added to every migrated file", version_always_added)
 
