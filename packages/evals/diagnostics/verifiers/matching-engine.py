@@ -106,6 +106,33 @@ def book_priority_ordering():
 check("book orders by price-time priority", book_priority_ordering)
 
 
+def same_price_fifo_both_sides():
+    """SPEC price-time priority: equal prices fill in arrival order, each side."""
+    eng = engine.MatchingEngine()
+    eng.submit(engine.Order(30, "sell", 50, 3))
+    eng.submit(engine.Order(31, "sell", 50, 4))
+    trades = eng.submit(engine.Order(32, "buy", 60, 5))
+    assert_equal(
+        trades,
+        [engine.Trade(32, 30, 50, 3), engine.Trade(32, 31, 50, 2)],
+        "sell side fills earliest first",
+    )
+    eng.submit(engine.Order(33, "sell", 60, 1))
+    eng.submit(engine.Order(34, "buy", 40, 6))
+    eng.submit(engine.Order(35, "buy", 40, 7))
+    trades = eng.submit(engine.Order(36, "sell", 35, 8))
+    assert_equal(
+        trades,
+        [engine.Trade(34, 36, 40, 6), engine.Trade(35, 36, 40, 2)],
+        "buy side fills earliest first",
+    )
+    buys, sells = eng.book()
+    assert_equal(buys, [engine.Order(35, "buy", 40, 5)], "later buy remainder rests")
+
+
+check("same-price orders fill in arrival order on both sides", same_price_fifo_both_sides)
+
+
 def cancel_frees_id_for_reuse():
     eng = engine.MatchingEngine()
     eng.submit(engine.Order(7, "buy", 100, 5))
