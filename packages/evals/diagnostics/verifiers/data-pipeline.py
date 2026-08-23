@@ -52,6 +52,15 @@ def parser_skips_empty_and_comments():
 check("parser skips empty and comments", parser_skips_empty_and_comments)
 
 
+def parser_comment_only_first_char():
+    text = "# real comment\n#name=X\nname=Y#hash\n"
+    assert_equal(parser_mod.parse(text), [{"name": "Y#hash"}],
+                 "only leading # starts comments")
+
+
+check("parser treats only leading hash as comment", parser_comment_only_first_char)
+
+
 def parser_duplicate_key_last_wins():
     assert_equal(parser_mod.parse("a=1 a=2 b=3"), [{"a": "2", "b": "3"}], "last wins")
 
@@ -82,6 +91,24 @@ def validator_negative_age_rejected():
     assert_equal(len(valid), 0, "negative age invalid")
 
 
+
+
+def validator_empty_name_rejected():
+    valid, invalid = validator_mod.validate([{"name": "", "age": "30", "role": "user"}])
+    assert_equal(len(valid), 0, "empty name invalid")
+    assert_equal(len(invalid), 1, "empty name counted invalid")
+
+
+check("validator rejects empty name", validator_empty_name_rejected)
+
+
+def validator_missing_age_rejected():
+    valid, invalid = validator_mod.validate([{"name": "A", "role": "user"}])
+    assert_equal(len(valid), 0, "missing age invalid")
+    assert_equal(len(invalid), 1, "missing age counted invalid")
+
+
+check("validator rejects missing age key", validator_missing_age_rejected)
 check("validator rejects negative age", validator_negative_age_rejected)
 
 
@@ -140,6 +167,17 @@ def transformer_all_filtered_returns_empty():
 
 
 check("transformer all-minors input returns empty", transformer_all_filtered_returns_empty)
+
+
+def transformer_age_18_boundary_kept():
+    recs = [
+        {"name": "A", "age": "18", "role": "user"},
+        {"name": "B", "age": "17", "role": "user"},
+    ]
+    assert_equal(transformer_mod.transform(recs), ["user=1:18:18"], "age 18 kept, 17 filtered")
+
+
+check("transformer keeps exactly 18 and filters 17", transformer_age_18_boundary_kept)
 
 
 # --- Pipeline extended checks ---
