@@ -113,6 +113,14 @@ def bogo_invalid_x_rejected():
 check("bogo x=0 rejected", bogo_invalid_x_rejected)
 
 
+def bogo_invalid_y_rejected():
+    assert_message(lambda: promotions.buy_x_get_y_free(cart_mod.Cart(), "a", 1, 0), "x and y must be >= 1", "y=0")
+    assert_message(lambda: promotions.buy_x_get_y_free(cart_mod.Cart(), "a", 1, -2), "x and y must be >= 1", "y=-2")
+
+
+check("bogo y=0 and negative y rejected", bogo_invalid_y_rejected)
+
+
 # apply_promotions.
 def exclusivity_enforced():
     assert_message(
