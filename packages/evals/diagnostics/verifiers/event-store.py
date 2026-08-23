@@ -124,6 +124,27 @@ def empty_store_verify():
 
 check("empty store verifies and has no keys", empty_store_verify)
 
+
+def init_skips_malformed_lines():
+    """SPEC: malformed lines (missing key/value, non-string key, null value,
+    invalid JSON) are silently skipped on load; only well-formed string-valued
+    lines populate state."""
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "db.jsonl")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"key": "good", "value": "1"}) + "\n")
+            f.write(json.dumps({"key": "null-value", "value": None}) + "\n")
+            f.write(json.dumps({"key": "missing-value"}) + "\n")
+            f.write(json.dumps({"key": 42, "value": "non-string-key"}) + "\n")
+            f.write(json.dumps({"key": "int-value", "value": 7}) + "\n")
+            f.write("{not json\n")
+        s = store_mod.EventStore(path)
+        assert_equal(s.keys(), ["good"], "only the valid line loads")
+        assert_equal(s.get("good"), "1", "valid key value")
+
+
+check("init skips malformed lines", init_skips_malformed_lines)
+
 # Public suite must also pass
 module = load("test_store")
 result = unittest.TextTestRunner(stream=io.StringIO()).run(
