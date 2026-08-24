@@ -58,6 +58,16 @@ export function parsePiEvents(stdout: string): {
 	freshContextRepairSucceeded?: boolean;
 };
 
+export interface CompletionSignature {
+	mutations: number;
+	commands: number;
+	mutationsAfterLastCommand: 0 | 1;
+	commandsAfterLastMutation: number;
+	unverifiedFinalMutation: boolean;
+}
+
+export function completionSignature(phaseStdouts: string[]): CompletionSignature;
+
 export function prepareWorkspace(fixture: string, workspace: string): Promise<void>;
 
 export function prepareTreatmentSupport(repository: string, runId: string): Promise<string>;

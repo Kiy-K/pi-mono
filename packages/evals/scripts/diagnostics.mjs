@@ -265,6 +265,51 @@ export function parsePiEvents(stdout) {
 	};
 }
 
+/**
+ * Ordering-based premature-completion signature over the phases that ran in
+ * the MAIN workspace (phase 1, gate continuation, repair — NOT the
+ * fresh-context verifier, which mutates a copy). The preregistered signature
+ * (EXPERIMENTS.jsonl long-horizon-fixture-preregistered-2026-08-16): the agent
+ * finalizes after a last unverified edit — a workspace mutation with no
+ * command of any kind executed after it, so the final state was never
+ * exercised. Ordering suffices; the event stream carries no timestamps.
+ */
+export function completionSignature(phaseStdouts) {
+	const MUTATORS = new Set(["write", "edit"]);
+	let mutations = 0;
+	let commands = 0;
+	let lastMutationSeq = -1;
+	let lastCommandSeq = -1;
+	let seq = 0;
+	for (const stdout of phaseStdouts) {
+		for (const line of stdout.split("\n")) {
+			if (!line.trim()) continue;
+			let event;
+			try {
+				event = JSON.parse(line);
+			} catch {
+				continue;
+			}
+			if (event.type !== "tool_execution_start") continue;
+			if (event.toolName === "bash") {
+				commands += 1;
+				lastCommandSeq = seq;
+			} else if (MUTATORS.has(event.toolName)) {
+				mutations += 1;
+				lastMutationSeq = seq;
+			}
+			seq += 1;
+		}
+	}
+	return {
+		mutations,
+		commands,
+		mutationsAfterLastCommand: mutations > 0 && lastMutationSeq > lastCommandSeq ? 1 : 0,
+		commandsAfterLastMutation: lastMutationSeq >= 0 && lastCommandSeq > lastMutationSeq ? lastCommandSeq - lastMutationSeq : 0,
+		unverifiedFinalMutation: mutations > 0 && lastMutationSeq > lastCommandSeq,
+	};
+}
+
 async function runProcess(command, args, { cwd, env = process.env, timeoutMs }) {
 	return await new Promise((resolvePromise) => {
 		const startedAt = performance.now();
@@ -558,6 +603,11 @@ export async function runTreatment({ name, repository, task, repetition, runRoot
 			overheadMs: Math.round(gateOverheadMs),
 			phase1VerifierMs: Math.round(gatePhase1SnapshotMs),
 		},
+		completionSignature: completionSignature(
+			// Main-workspace phases only: phase 2 (fresh-context verifier) mutates
+			// its own workspace copy and must not count toward the signature.
+			[phase1, phase1b, phase3].filter(Boolean).map((p) => p.stdout),
+		),
 	};
 }
 
