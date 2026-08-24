@@ -488,8 +488,11 @@ export async function runTreatment({ name, repository, task, repetition, runRoot
 	const fixtureDir = resolve(packageRoot, "diagnostics", task.fixture);
 	await prepareWorkspace(fixtureDir, workspace);
 	// Exact bundled test filenames, for attributing test runs in the
-	// completion signature (generic regexes cannot distinguish the fixture
-	// suite from agent-authored test files).
+	// completion signature. Fixture contract: bundled Python suites are
+	// TOP-LEVEL test_*.py files, and every current manifest fixture satisfies
+	// that. A nested or differently laid-out suite would be silently
+	// misattributed as self-authored here - extend this discovery if a task
+	// ever needs another layout.
 	const bundledTestNames = readdirSync(fixtureDir).filter((f) => /^test_[a-z0-9_]+\.py$/.test(f));
 	const invocation = buildPiInvocation({ repository, workspace, requiredExtensions, model, thinking, prompt: buildTreatmentPrompt(task.prompt, promptAppend) });
 	const env = {
