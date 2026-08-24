@@ -140,6 +140,20 @@ describe("completionSignature", () => {
 		expect(sig.selfTestCommands).toBe(1);
 	});
 
+	it("does not flag bundled-only when one command mixes bundled and self-authored test files", () => {
+		const sig = completionSignature(
+			[
+				stream([
+					{ name: "edit" },
+					{ name: "bash", args: { command: "python3 -m pytest test_promotions.py test_mine.py" } },
+				]),
+			],
+			["test_promotions.py"],
+		);
+		expect(sig.bundledTestCommands).toBe(1);
+		expect(sig.bundledOnlyAfterLastMutation).toBe(false);
+	});
+
 	it("counts SPEC.md reads as use of the in-workspace oracle", () => {
 		const sig = completionSignature([
 			stream([

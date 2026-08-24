@@ -315,8 +315,9 @@ export function completionSignature(phaseStdouts, bundledTestNames = []) {
 					// self-authored; a bare `unittest`/`pytest` (e.g. discover,
 					// which sweeps self-authored files too) is unattributable.
 					const named = command.match(/\btest_[a-z0-9_]+\.py\b/g) ?? [];
-					const isBundledRun = named.some((name) => bundled.has(name));
-					if (isBundledRun) {
+					const hasBundled = named.some((name) => bundled.has(name));
+					const hasForeign = named.some((name) => !bundled.has(name));
+					if (hasBundled) {
 						bundledTestCommands += 1;
 						lastBundledTestSeq = seq;
 					} else if (named.length > 0) {
@@ -324,11 +325,12 @@ export function completionSignature(phaseStdouts, bundledTestNames = []) {
 					} else {
 						unattributedTestCommands += 1;
 					}
-					// Any non-bundled command after the last mutation breaks the
-					// false-green claim: "bundled-only" must mean EVERY command
-					// after the mutation was a bundled-suite run, not merely the
-					// last one (edit -> ls -> bundled test is not bundled-only).
-					if (mutations > 0 && seq > lastMutationSeq && !isBundledRun) {
+					// Bundled-only requires the command to run NO foreign test
+					// file: `pytest test_promotions.py test_mine.py` runs bundled
+					// AND self-authored checks, so it breaks the claim. Any other
+					// non-test command after the mutation breaks it too.
+					const isBundledOnlyRun = hasBundled && !hasForeign;
+					if (mutations > 0 && seq > lastMutationSeq && !isBundledOnlyRun) {
 						nonBundledCommandAfterLastMutation = true;
 					}
 				} else if (mutations > 0 && seq > lastMutationSeq) {
