@@ -61,12 +61,18 @@ export function parsePiEvents(stdout: string): {
 export interface CompletionSignature {
 	mutations: number;
 	commands: number;
+	testCommands: number;
+	bundledTestCommands: number;
+	selfTestCommands: number;
+	unattributedTestCommands: number;
+	specReads: number;
 	mutationsAfterLastCommand: 0 | 1;
 	commandsAfterLastMutation: number;
+	bundledOnlyAfterLastMutation: boolean;
 	unverifiedFinalMutation: boolean;
 }
 
-export function completionSignature(phaseStdouts: string[]): CompletionSignature;
+export function completionSignature(phaseStdouts: string[], bundledTestNames?: string[]): CompletionSignature;
 
 export function prepareWorkspace(fixture: string, workspace: string): Promise<void>;
 

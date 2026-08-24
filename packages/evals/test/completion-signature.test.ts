@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { completionSignature } from "../scripts/diagnostics.mjs";
 
 /** Build a minimal pi JSON event stream from tool names, in start order. */
-function stream(tools: Array<{ name: string; error?: boolean }>): string {
+function stream(tools: Array<{ name: string; error?: boolean; args?: unknown }>): string {
 	const lines: string[] = ['{"type":"session","version":3,"id":"t","timestamp":"t","cwd":"/w"}'];
 	for (const tool of tools) {
 		lines.push(
@@ -10,7 +10,7 @@ function stream(tools: Array<{ name: string; error?: boolean }>): string {
 				type: "tool_execution_start",
 				toolCallId: `c-${tool.name}-${Math.random()}`,
 				toolName: tool.name,
-				args: {},
+				args: tool.args ?? {},
 			}),
 		);
 		lines.push(
@@ -73,6 +73,91 @@ describe("completionSignature", () => {
 		const sig = completionSignature([stream([{ name: "edit" }, { name: "bash", error: true }])]);
 		expect(sig.unverifiedFinalMutation).toBe(false);
 		expect(sig.commands).toBe(1);
+	});
+
+	it("attributes test runs: bundled by exact fixture name, self-authored by other test file, discover unattributed", () => {
+		const sig = completionSignature(
+			[
+				stream([
+					{ name: "bash", args: { command: "python3 -m unittest test_promotions.py -v" } },
+					{ name: "bash", args: { command: "python3 -m unittest test_mine.py -v" } },
+					{ name: "bash", args: { command: "python3 -m unittest discover" } },
+					{ name: "bash", args: { command: "ls -la" } },
+				]),
+			],
+			["test_promotions.py", "test_cart.py"],
+		);
+		expect(sig.testCommands).toBe(3);
+		expect(sig.bundledTestCommands).toBe(1);
+		expect(sig.selfTestCommands).toBe(1);
+		expect(sig.unattributedTestCommands).toBe(1);
+	});
+
+	it("does not flag false-green when an unrelated command ran between mutation and bundled suite", () => {
+		const sig = completionSignature(
+			[
+				stream([
+					{ name: "edit" },
+					{ name: "bash", args: { command: "ls -la" } },
+					{ name: "bash", args: { command: "python3 -m unittest test_promotions.py" } },
+				]),
+			],
+			["test_promotions.py"],
+		);
+		expect(sig.bundledOnlyAfterLastMutation).toBe(false);
+	});
+
+	it("evaluates bundled-only against the FINAL edit: an intervening edit resets the trace", () => {
+		const sig = completionSignature(
+			[
+				stream([
+					{ name: "edit" },
+					{ name: "bash", args: { command: "ls -la" } },
+					{ name: "edit" },
+					{ name: "bash", args: { command: "python3 -m unittest test_promotions.py" } },
+				]),
+			],
+			["test_promotions.py"],
+		);
+		expect(sig.bundledOnlyAfterLastMutation).toBe(true);
+	});
+
+	it("flags the false-green signature: bundled suite is the only post-mutation command", () => {
+		const sig = completionSignature(
+			[stream([{ name: "edit" }, { name: "bash", args: { command: "python3 -m unittest test_promotions.py" } }])],
+			["test_promotions.py"],
+		);
+		expect(sig.bundledOnlyAfterLastMutation).toBe(true);
+		expect(sig.unverifiedFinalMutation).toBe(false);
+	});
+
+	it("does not flag false-green when a self-authored test ran after the mutation", () => {
+		const sig = completionSignature(
+			[stream([{ name: "edit" }, { name: "bash", args: { command: "python3 -m unittest test_mine.py" } }])],
+			["test_promotions.py"],
+		);
+		expect(sig.bundledOnlyAfterLastMutation).toBe(false);
+		expect(sig.selfTestCommands).toBe(1);
+	});
+
+	it("counts SPEC.md reads as use of the in-workspace oracle", () => {
+		const sig = completionSignature([
+			stream([
+				{ name: "read", args: { path: "/ws/SPEC.md" } },
+				{ name: "read", args: { path: "/ws/cart.py" } },
+			]),
+		]);
+		expect(sig.specReads).toBe(1);
+	});
+
+	it("rejects a mutant that attributes self-authored tests as bundled by regex alone", () => {
+		const fixture = [stream([{ name: "bash", args: { command: "python3 -m unittest test_mine.py" } }])];
+		expect(completionSignature(fixture, ["test_promotions.py"]).bundledTestCommands).toBe(0);
+		const mutant = completionSignature(
+			[fixture[0].replaceAll("test_mine.py", "test_promotions.py")],
+			["test_promotions.py"],
+		);
+		expect(mutant.bundledTestCommands).toBe(1);
 	});
 
 	// Mutant controls: buggy extractors must misclassify at least one fixture.

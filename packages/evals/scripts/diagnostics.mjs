@@ -273,13 +273,26 @@ export function parsePiEvents(stdout) {
  * finalizes after a last unverified edit — a workspace mutation with no
  * command of any kind executed after it, so the final state was never
  * exercised. Ordering suffices; the event stream carries no timestamps.
+ *
+ * Also records production-available verification usage: SPEC.md reads (the
+ * in-workspace oracle) and bundled-suite runs, so an A/B can measure whether
+ * a treatment actually changes verification behavior, not just outcomes.
  */
-export function completionSignature(phaseStdouts) {
+export function completionSignature(phaseStdouts, bundledTestNames = []) {
 	const MUTATORS = new Set(["write", "edit"]);
+	const TEST_COMMAND = /(unittest|pytest|\btest_[a-z0-9_]+\.py\b)/;
+	const bundled = new Set(bundledTestNames);
 	let mutations = 0;
 	let commands = 0;
+	let testCommands = 0;
+	let bundledTestCommands = 0;
+	let selfTestCommands = 0;
+	let unattributedTestCommands = 0;
+	let nonBundledCommandAfterLastMutation = false;
+	let specReads = 0;
 	let lastMutationSeq = -1;
 	let lastCommandSeq = -1;
+	let lastBundledTestSeq = -1;
 	let seq = 0;
 	for (const stdout of phaseStdouts) {
 		for (const line of stdout.split("\n")) {
@@ -294,9 +307,43 @@ export function completionSignature(phaseStdouts) {
 			if (event.toolName === "bash") {
 				commands += 1;
 				lastCommandSeq = seq;
+				const command = typeof event.args === "string" ? event.args : (event.args?.command ?? "");
+				if (TEST_COMMAND.test(command)) {
+					testCommands += 1;
+					// Attribution uses ONLY explicit test filenames in the command:
+					// a bundled name -> bundled run; another test_*.py name ->
+					// self-authored; a bare `unittest`/`pytest` (e.g. discover,
+					// which sweeps self-authored files too) is unattributable.
+					const named = command.match(/\btest_[a-z0-9_]+\.py\b/g) ?? [];
+					const isBundledRun = named.some((name) => bundled.has(name));
+					if (isBundledRun) {
+						bundledTestCommands += 1;
+						lastBundledTestSeq = seq;
+					} else if (named.length > 0) {
+						selfTestCommands += 1;
+					} else {
+						unattributedTestCommands += 1;
+					}
+					// Any non-bundled command after the last mutation breaks the
+					// false-green claim: "bundled-only" must mean EVERY command
+					// after the mutation was a bundled-suite run, not merely the
+					// last one (edit -> ls -> bundled test is not bundled-only).
+					if (mutations > 0 && seq > lastMutationSeq && !isBundledRun) {
+						nonBundledCommandAfterLastMutation = true;
+					}
+				} else if (mutations > 0 && seq > lastMutationSeq) {
+					nonBundledCommandAfterLastMutation = true;
+				}
 			} else if (MUTATORS.has(event.toolName)) {
 				mutations += 1;
 				lastMutationSeq = seq;
+				// Per-mutation state: the false-green claim is about the FINAL
+				// edit, so a later edit resets it (edit -> ls -> edit -> bundled
+				// test IS bundled-only after the last edit).
+				nonBundledCommandAfterLastMutation = false;
+			} else if (event.toolName === "read") {
+				const path = typeof event.args === "string" ? event.args : (event.args?.path ?? "");
+				if (typeof path === "string" && path.includes("SPEC.md")) specReads += 1;
 			}
 			seq += 1;
 		}
@@ -304,8 +351,19 @@ export function completionSignature(phaseStdouts) {
 	return {
 		mutations,
 		commands,
+		testCommands,
+		bundledTestCommands,
+		selfTestCommands,
+		unattributedTestCommands,
+		specReads,
 		mutationsAfterLastCommand: mutations > 0 && lastMutationSeq > lastCommandSeq ? 1 : 0,
 		commandsAfterLastMutation: lastMutationSeq >= 0 && lastCommandSeq > lastMutationSeq ? lastCommandSeq - lastMutationSeq : 0,
+		// False-green signature (the measured in-loop blind spot): EVERY
+		// command after the final mutation was a bundled-suite run, and the
+		// suite that misses 14/18 SPEC rules on cart-promotions was among
+		// them. Not evidence of external correctness.
+		bundledOnlyAfterLastMutation:
+			mutations > 0 && lastBundledTestSeq > lastMutationSeq && !nonBundledCommandAfterLastMutation,
 		unverifiedFinalMutation: mutations > 0 && lastMutationSeq > lastCommandSeq,
 	};
 }
@@ -427,7 +485,12 @@ export async function prepareTreatmentSupport(repository, runId) {
 
 export async function runTreatment({ name, repository, task, repetition, runRoot, requiredExtensions, agentDir, sessionDir, model, thinking, timeoutMs, interventionEnabled, gateEnabled, promptAppend }) {
 	const workspace = join(runRoot, task.id, String(repetition), name, "workspace");
-	await prepareWorkspace(resolve(packageRoot, "diagnostics", task.fixture), workspace);
+	const fixtureDir = resolve(packageRoot, "diagnostics", task.fixture);
+	await prepareWorkspace(fixtureDir, workspace);
+	// Exact bundled test filenames, for attributing test runs in the
+	// completion signature (generic regexes cannot distinguish the fixture
+	// suite from agent-authored test files).
+	const bundledTestNames = readdirSync(fixtureDir).filter((f) => /^test_[a-z0-9_]+\.py$/.test(f));
 	const invocation = buildPiInvocation({ repository, workspace, requiredExtensions, model, thinking, prompt: buildTreatmentPrompt(task.prompt, promptAppend) });
 	const env = {
 		...process.env,
@@ -607,6 +670,7 @@ export async function runTreatment({ name, repository, task, repetition, runRoot
 			// Main-workspace phases only: phase 2 (fresh-context verifier) mutates
 			// its own workspace copy and must not count toward the signature.
 			[phase1, phase1b, phase3].filter(Boolean).map((p) => p.stdout),
+			bundledTestNames,
 		),
 	};
 }
