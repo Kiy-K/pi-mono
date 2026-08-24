@@ -32,15 +32,18 @@ async function runPublicSuite(promoSource: string): Promise<{ passed: boolean; o
 			writeFile(join(root, "receipt.py"), RECEIPT_REF),
 		]);
 		await rm(join(root, "__pycache__"), { recursive: true, force: true });
-		const { stdout } = await execFileAsync(
+		// Success/failure comes ONLY from the unittest exit status: output text
+		// is unreliable (unittest reports to stderr; stdout can be empty on
+		// import/discovery collapse).
+		const { stdout, stderr } = await execFileAsync(
 			process.platform === "win32" ? "python" : "python3",
 			["-m", "unittest", "discover", "-v"],
 			{ cwd: root, timeout: 30_000 },
-		).catch((error: { stdout?: string; stderr?: string; code?: number }) => ({
-			stdout: `${error.stdout ?? ""}${error.stderr ?? ""}`,
-			code: error.code,
-		}));
-		return { passed: !stdout.includes("FAILED"), output: stdout };
+		);
+		return { passed: true, output: `${stdout}${stderr}` };
+	} catch (error) {
+		const e = error as { code?: number; stdout?: string; stderr?: string };
+		return { passed: false, output: `${e.stdout ?? ""}${e.stderr ?? ""}` };
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
@@ -49,7 +52,15 @@ async function runPublicSuite(promoSource: string): Promise<{ passed: boolean; o
 describe("cart-promotions in-loop verification signal", () => {
 	it("passes the bundled public suite on the SPEC-faithful reference", async () => {
 		const result = await runPublicSuite(PROMO_REF);
+		// Guard against silent discovery collapse: all 9 bundled tests must run.
+		expect(result.output, result.output).toContain("Ran 9 tests");
+		expect(result.output, result.output).toContain("OK");
 		expect(result.passed, result.output).toBe(true);
+	});
+
+	it("classifies a crashing (syntax-error) mutant as caught, not as a blind spot", async () => {
+		const result = await runPublicSuite("def broken(:\n");
+		expect(result.passed, result.output).toBe(false);
 	});
 
 	/**
