@@ -93,7 +93,7 @@ describe("completionSignature", () => {
 		expect(sig.unattributedTestCommands).toBe(1);
 	});
 
-	it("does not flag false-green when an unrelated command ran between mutation and bundled suite", () => {
+	it("does not flag bundled-only when an unrelated command ran between mutation and bundled suite", () => {
 		const sig = completionSignature(
 			[
 				stream([
@@ -122,7 +122,7 @@ describe("completionSignature", () => {
 		expect(sig.bundledOnlyAfterLastMutation).toBe(true);
 	});
 
-	it("flags the false-green signature: bundled suite is the only post-mutation command", () => {
+	it("flags bundled-only verification: bundled suite is the only post-mutation command", () => {
 		const sig = completionSignature(
 			[stream([{ name: "edit" }, { name: "bash", args: { command: "python3 -m unittest test_promotions.py" } }])],
 			["test_promotions.py"],
@@ -131,7 +131,7 @@ describe("completionSignature", () => {
 		expect(sig.unverifiedFinalMutation).toBe(false);
 	});
 
-	it("does not flag false-green when a self-authored test ran after the mutation", () => {
+	it("does not flag bundled-only when a self-authored test ran after the mutation", () => {
 		const sig = completionSignature(
 			[stream([{ name: "edit" }, { name: "bash", args: { command: "python3 -m unittest test_mine.py" } }])],
 			["test_promotions.py"],

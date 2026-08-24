@@ -358,10 +358,13 @@ export function completionSignature(phaseStdouts, bundledTestNames = []) {
 		specReads,
 		mutationsAfterLastCommand: mutations > 0 && lastMutationSeq > lastCommandSeq ? 1 : 0,
 		commandsAfterLastMutation: lastMutationSeq >= 0 && lastCommandSeq > lastMutationSeq ? lastCommandSeq - lastMutationSeq : 0,
-		// False-green signature (the measured in-loop blind spot): EVERY
-		// command after the final mutation was a bundled-suite run, and the
-		// suite that misses 14/18 SPEC rules on cart-promotions was among
-		// them. Not evidence of external correctness.
+		// Bundled-only ordering signal: EVERY command after the final mutation
+		// was a bundled-suite run. This alone is NOT a "false green" - that
+		// class requires the conjunction with the external verifier result
+		// (valid verifier AND !passed), derived at analysis level; the field
+		// is deliberately verifier-agnostic. On cart-promotions the bundled
+		// suite misses 14/18 SPEC rules, so the signal marks reps whose only
+		// post-edit verification was the weak suite.
 		bundledOnlyAfterLastMutation:
 			mutations > 0 && lastBundledTestSeq > lastMutationSeq && !nonBundledCommandAfterLastMutation,
 		unverifiedFinalMutation: mutations > 0 && lastMutationSeq > lastCommandSeq,

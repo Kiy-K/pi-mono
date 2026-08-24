@@ -52,7 +52,11 @@ All mediators are LOWER-BOUND proxies, not complete measures:
   in commands; self-derived checks under other names (check_spec.py, inline
   `python -c` assertions) are invisible to it.
 - `bundledOnlyAfterLastMutation` / `unverifiedFinalMutation` are exact
-  ordering facts over recorded tool events, not proxies.
+  ordering facts over recorded tool events, not proxies. Terminology: they
+  are candidate signals, NOT the failure class itself. A false green is the
+  derived conjunction `bundledOnlyAfterLastMutation && verifier valid &&
+  !verifier.passed`, computed at analysis level; the signature fields stay
+  verifier-agnostic.
 
 Primary: solve rate (external verifier, as always). The mechanism claims to
 move the proxy mediators upward; if solve rate moves without them moving,
