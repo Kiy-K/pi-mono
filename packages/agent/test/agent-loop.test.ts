@@ -1604,4 +1604,107 @@ describe("agentLoopContinue with AgentMessage", () => {
 		expect(messages.length).toBe(1);
 		expect(messages[0].role).toBe("assistant");
 	});
+
+	describe("stagnant tool-call loop detection", () => {
+		function createLoopStreamFn(batchCount: number, varyLast: boolean) {
+			let callIndex = 0;
+			return () => {
+				const stream = new MockAssistantStream();
+				queueMicrotask(() => {
+					callIndex += 1;
+					if (callIndex > batchCount) {
+						stream.push({
+							type: "done",
+							reason: "stop",
+							message: createAssistantMessage([{ type: "text", text: "done" }]),
+						});
+						return;
+					}
+					const value = varyLast && callIndex === batchCount ? "changed" : "same";
+					const message = createAssistantMessage(
+						[{ type: "toolCall", id: `tool-${callIndex}`, name: "echo", arguments: { value } }],
+						"toolUse",
+					);
+					stream.push({ type: "done", reason: "toolUse", message });
+				});
+				return stream;
+			};
+		}
+
+		function createEchoTrackingTool(executed: string[]) {
+			const toolSchema = Type.Object({ value: Type.String() });
+			const tool: AgentTool<typeof toolSchema, { value: string }> = {
+				name: "echo",
+				label: "Echo",
+				description: "Echo tool",
+				parameters: toolSchema,
+				async execute(_toolCallId, params) {
+					executed.push(params.value);
+					return {
+						content: [{ type: "text", text: `echoed: ${params.value}` }],
+						details: { value: params.value },
+					};
+				},
+			};
+			return tool;
+		}
+
+		it("executes the first two identical batches and blocks the third", async () => {
+			const executed: string[] = [];
+			const context: AgentContext = { systemPrompt: "", messages: [], tools: [createEchoTrackingTool(executed)] };
+			const config: AgentLoopConfig = { model: createModel(), convertToLlm: identityConverter };
+
+			const stream = agentLoop(
+				[createUserMessage("loop")],
+				context,
+				config,
+				undefined,
+				createLoopStreamFn(6, false),
+			);
+			const messages = await stream.result();
+
+			expect(executed).toEqual(["same", "same"]);
+			const blocked = messages.filter((m) => m.role === "toolResult" && m.isError);
+			expect(blocked.length).toBe(4);
+			expect(JSON.stringify(messages)).toMatch(/identical tool-call batch/);
+		});
+
+		it("terminates the run after enough blocked repeats", async () => {
+			const executed: string[] = [];
+			const context: AgentContext = { systemPrompt: "", messages: [], tools: [createEchoTrackingTool(executed)] };
+			const config: AgentLoopConfig = { model: createModel(), convertToLlm: identityConverter };
+
+			const stream = agentLoop(
+				[createUserMessage("loop")],
+				context,
+				config,
+				undefined,
+				createLoopStreamFn(20, false),
+			);
+			const messages = await stream.result();
+
+			expect(executed).toEqual(["same", "same"]);
+			expect(JSON.stringify(messages)).toMatch(/run is being stopped/);
+		});
+
+		it("does not block when the batch changes", async () => {
+			const executed: string[] = [];
+			const context: AgentContext = { systemPrompt: "", messages: [], tools: [createEchoTrackingTool(executed)] };
+			const config: AgentLoopConfig = { model: createModel(), convertToLlm: identityConverter };
+
+			// 5 identical batches, then a changed one that executes normally.
+			const stream = agentLoop([createUserMessage("loop")], context, config, undefined, createLoopStreamFn(6, true));
+			const messages = await stream.result();
+
+			expect(executed).toEqual(["same", "same", "changed"]);
+			// Earlier identical repeats were still blocked (expected); assert the
+			// changed batch executed and the run finished with the final reply.
+			const finalAssistant = messages.at(-1);
+			if (!finalAssistant || finalAssistant.role !== "assistant") {
+				throw new Error("expected a final assistant message");
+			}
+			const textBlocks = finalAssistant.content.filter((block) => block.type === "text");
+			expect(textBlocks.some((block) => block.type === "text" && block.text === "done")).toBe(true);
+		});
+	});
 });

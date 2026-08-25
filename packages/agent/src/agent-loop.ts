@@ -163,6 +163,9 @@ async function runLoop(
 	let currentContext = initialContext;
 	let config = initialConfig;
 	let firstTurn = true;
+	// Consecutive identical tool-call batches signal a stuck loop; the tracker
+	// resets whenever the batch changes or new user/steering input arrives.
+	let repeatBatch: { key: string; count: number } | null = null;
 	// Check for steering messages at start (user may have typed while waiting)
 	let pendingMessages: AgentMessage[] = (await config.getSteeringMessages?.()) || [];
 
@@ -178,8 +181,10 @@ async function runLoop(
 				firstTurn = false;
 			}
 
-			// Process pending messages (inject before next assistant response)
+			// Process pending messages (inject before next assistant response).
+			// Fresh user/steering input means any prior stagnation is addressed.
 			if (pendingMessages.length > 0) {
+				repeatBatch = null;
 				for (const message of pendingMessages) {
 					await emit({ type: "message_start", message });
 					await emit({ type: "message_end", message });
@@ -208,10 +213,26 @@ async function runLoop(
 				// A "length" stop means the output was cut off by the token limit, so
 				// every tool call in the message may carry truncated arguments. Fail
 				// them all instead of executing potentially borked calls.
-				const executedToolBatch =
-					message.stopReason === "length"
-						? await failToolCallsFromTruncatedMessage(toolCalls, emit)
-						: await executeToolCalls(currentContext, message, config, signal, emit);
+				let executedToolBatch: ExecutedToolCallBatch;
+				if (message.stopReason === "length") {
+					// A "length" stop means the output was cut off by the token limit,
+					// so every tool call in the message may carry truncated arguments.
+					// Fail them all instead of executing potentially borked calls.
+					executedToolBatch = await failToolCallsFromTruncatedMessage(toolCalls, emit);
+				} else {
+					const batchKey = toolCallBatchKey(toolCalls);
+					if (repeatBatch && repeatBatch.key === batchKey) {
+						repeatBatch.count += 1;
+					} else {
+						repeatBatch = { key: batchKey, count: 1 };
+					}
+					// The first two occurrences execute (one retry is legitimate);
+					// from the third consecutive identical batch on, fail the batch.
+					executedToolBatch =
+						repeatBatch.count >= 3
+							? await failRepeatedToolCallBatch(toolCalls, repeatBatch.count, emit)
+							: await executeToolCalls(currentContext, message, config, signal, emit);
+				}
 				toolResults.push(...executedToolBatch.messages);
 				hasMoreToolCalls = !executedToolBatch.terminate;
 
@@ -403,6 +424,63 @@ async function failToolCallsFromTruncatedMessage(
 		messages.push(toolResultMessage);
 	}
 	return { messages, terminate: false };
+}
+
+/**
+ * Stable key for a tool-call batch: tool names plus depth-sorted arguments,
+ * so key equality means the model re-issued a truly identical batch.
+ */
+function toolCallBatchKey(toolCalls: AgentToolCall[]): string {
+	const stable = (value: unknown): unknown => {
+		if (Array.isArray(value)) return value.map(stable);
+		if (value && typeof value === "object") {
+			return Object.fromEntries(
+				Object.entries(value as Record<string, unknown>)
+					.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+					.map(([k, v]) => [k, stable(v)]),
+			);
+		}
+		return value;
+	};
+	return JSON.stringify(toolCalls.map((toolCall) => ({ name: toolCall.name, arguments: stable(toolCall.arguments) })));
+}
+
+/**
+ * Fail all tool calls from an assistant message whose batch is identical to
+ * the previous consecutive batch. Executing the same calls again cannot make
+ * progress; report an error so the model changes approach instead. After
+ * enough blocked repeats, terminate the loop entirely.
+ */
+async function failRepeatedToolCallBatch(
+	toolCalls: AgentToolCall[],
+	repeatCount: number,
+	emit: AgentEventSink,
+): Promise<ExecutedToolCallBatch> {
+	const messages: ToolResultMessage[] = [];
+	const terminate = repeatCount >= 6;
+	for (const toolCall of toolCalls) {
+		await emit({
+			type: "tool_execution_start",
+			toolCallId: toolCall.id,
+			toolName: toolCall.name,
+			args: toolCall.arguments,
+		});
+		const finalized: FinalizedToolCallOutcome = {
+			toolCall,
+			result: createErrorToolResult(
+				terminate
+					? `Tool call "${toolCall.name}" was not executed: this is repeat ${repeatCount} of an identical tool-call batch, so the run is being stopped to prevent an endless loop. Summarize progress and stop, or wait for new input.`
+					: `Tool call "${toolCall.name}" was not executed: this is repeat ${repeatCount} of an identical tool-call batch. Repeating the same call cannot produce new information. Change approach: adjust the arguments, gather different context, or reconsider the plan.`,
+			),
+			isError: true,
+			...(terminate ? { terminate: true as const } : {}),
+		};
+		await emitToolExecutionEnd(finalized, emit);
+		const toolResultMessage = createToolResultMessage(finalized);
+		await emitToolResultMessage(toolResultMessage, emit);
+		messages.push(toolResultMessage);
+	}
+	return { messages, terminate };
 }
 
 /**
