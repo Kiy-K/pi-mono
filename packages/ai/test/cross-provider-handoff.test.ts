@@ -87,8 +87,8 @@ const PROVIDER_MODEL_PAIRS: ProviderModelPair[] = [
 	// Cloudflare AI Gateway
 	{
 		provider: "cloudflare-ai-gateway",
-		model: "workers-ai/@cf/moonshotai/kimi-k2.6",
-		label: "cloudflare-gateway-kimi-k2.6",
+		model: "gpt-4.1-mini",
+		label: "cloudflare-gateway-gpt-4.1-mini",
 	},
 	{
 		provider: "cloudflare-ai-gateway",
