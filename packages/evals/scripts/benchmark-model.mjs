@@ -34,6 +34,17 @@ import { hashFile, hashTree, prepareTreatmentSupport, runTreatment } from "./dia
 
 const packageRoot = resolve(import.meta.dirname, "..");
 
+// Load the gitignored repo-root .env (KEY=value lines) if present. Existing
+// process env wins; values are never logged.
+function loadDotEnv(path) {
+	if (!existsSync(path)) return;
+	for (const line of readFileSync(path, "utf8").split("\n")) {
+		const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+		if (match && !(match[1] in process.env)) process.env[match[1]] = match[2];
+	}
+}
+loadDotEnv(resolve(packageRoot, "..", "..", ".env"));
+
 // The preregistered spec-verification directive (spec-verification-append.md,
 // 2026-08-24). Applied ONLY to the improved arm via --arm both.
 const SPEC_VERIFICATION_APPEND =
