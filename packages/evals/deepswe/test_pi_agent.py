@@ -1,12 +1,172 @@
 import json
+import sys
 import tempfile
+import types
 import unittest
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
-from pier.environments.base import ExecResult
-from pier.models.agent.context import AgentContext
 
-from deepswe.pi_agent import PiAgent, trajectory_from_jsonl
+def _install_pier_stubs() -> None:
+	"""Minimal stand-ins for the proprietary pier framework (not on PyPI),
+	mirroring only the surface deepswe.pi_agent uses. Lets the adapter's
+	logic be verified without the DeepSWE cluster; real runs still require
+	pier 0.3.1 (protocol.json)."""
+	try:
+		import pier  # noqa: F401
+
+		return
+	except ModuleNotFoundError:
+		pass
+
+	pier = types.ModuleType("pier")
+	agents = types.ModuleType("pier.agents")
+	agents_base = types.ModuleType("pier.agents.base")
+	environments = types.ModuleType("pier.environments")
+	environments_base = types.ModuleType("pier.environments.base")
+	models = types.ModuleType("pier.models")
+	agent_models = types.ModuleType("pier.models.agent")
+	context_mod = types.ModuleType("pier.models.agent.context")
+	network_mod = types.ModuleType("pier.models.agent.network")
+	trajectories = types.ModuleType("pier.models.trajectories")
+	utils = types.ModuleType("pier.utils")
+	trajectory_utils = types.ModuleType("pier.utils.trajectory_utils")
+
+	class BaseAgent:
+		def __init__(self, *args: Any, model_name: str | None = None, logs_dir: Path | None = None, **kwargs: Any) -> None:
+			self.model_name = model_name
+			self.logs_dir = Path(logs_dir) if logs_dir is not None else None
+
+	@dataclass
+	class ExecResult:
+		stdout: str
+		stderr: str
+		return_code: int
+
+	@dataclass
+	class AgentContext:
+		n_input_tokens: int = 0
+		n_cache_tokens: int = 0
+		n_output_tokens: int = 0
+		cost_usd: float = 0.0
+		peak_context_tokens: int = 0
+		summarization_count: int = 0
+		n_agent_steps: int = 0
+		metadata: dict = field(default_factory=dict)
+
+	@dataclass
+	class NetworkAllowlist:
+		domains: list[str]
+
+	@dataclass
+	class ToolCall:
+		tool_call_id: str
+		function_name: str
+		arguments: dict
+
+	@dataclass
+	class ObservationResult:
+		source_call_id: str
+		content: str
+		extra: dict = field(default_factory=dict)
+
+	@dataclass
+	class Observation:
+		results: list
+
+	@dataclass
+	class Metrics:
+		prompt_tokens: int | None = None
+		cached_tokens: int | None = None
+		completion_tokens: int | None = None
+		cost_usd: float | None = None
+
+	@dataclass
+	class Step:
+		step_id: int
+		source: str
+		message: str
+		timestamp: str | None = None
+		model_name: str | None = None
+		reasoning_effort: str | None = None
+		reasoning_content: str | None = None
+		tool_calls: list | None = None
+		observation: Observation | None = None
+		metrics: Metrics | None = None
+		llm_call_count: int | None = None
+		extra: dict | None = None
+
+	@dataclass
+	class Agent:
+		name: str
+		version: str
+		model_name: str
+		extra: dict = field(default_factory=dict)
+
+	@dataclass
+	class FinalMetrics:
+		total_prompt_tokens: int
+		total_cached_tokens: int
+		total_completion_tokens: int
+		total_cost_usd: float
+		total_steps: int
+		extra: dict = field(default_factory=dict)
+
+	@dataclass
+	class Trajectory:
+		schema_version: str
+		session_id: str | None
+		agent: Agent
+		steps: list
+		final_metrics: FinalMetrics | None
+
+		def to_json_dict(self) -> dict:
+			from dataclasses import asdict
+
+			return asdict(self)
+
+	def format_trajectory_json(payload: dict) -> str:
+		return json.dumps(payload)
+
+	agents_base.BaseAgent = BaseAgent
+	environments_base.BaseEnvironment = object
+	environments_base.ExecResult = ExecResult
+	context_mod.AgentContext = AgentContext
+	network_mod.NetworkAllowlist = NetworkAllowlist
+	trajectories.Agent = Agent
+	trajectories.FinalMetrics = FinalMetrics
+	trajectories.Metrics = Metrics
+	trajectories.Observation = Observation
+	trajectories.ObservationResult = ObservationResult
+	trajectories.Step = Step
+	trajectories.ToolCall = ToolCall
+	trajectories.Trajectory = Trajectory
+	trajectory_utils.format_trajectory_json = format_trajectory_json
+
+	for name, module in {
+		"pier": pier,
+		"pier.agents": agents,
+		"pier.agents.base": agents_base,
+		"pier.environments": environments,
+		"pier.environments.base": environments_base,
+		"pier.models": models,
+		"pier.models.agent": agent_models,
+		"pier.models.agent.context": context_mod,
+		"pier.models.agent.network": network_mod,
+		"pier.models.trajectories": trajectories,
+		"pier.utils": utils,
+		"pier.utils.trajectory_utils": trajectory_utils,
+	}.items():
+		sys.modules[name] = module
+
+
+_install_pier_stubs()
+
+from pier.environments.base import ExecResult  # noqa: E402
+from pier.models.agent.context import AgentContext  # noqa: E402
+
+from deepswe.pi_agent import PiAgent, trajectory_from_jsonl  # noqa: E402
 
 
 class PiAgentTest(unittest.TestCase):
@@ -151,14 +311,14 @@ class PiAgentTest(unittest.TestCase):
             self.assertEqual(context.n_output_tokens, 4)
             self.assertEqual(context.n_agent_steps, 1)
 
-    def test_rejects_unpinned_model(self) -> None:
+    def test_rejects_unknown_provider(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             artifact = root / "pi"
             auth = root / "auth.json"
             artifact.touch()
             auth.touch()
-            with self.assertRaisesRegex(ValueError, "GPT-5.6 Luna"):
+            with self.assertRaisesRegex(ValueError, "Unsupported model"):
                 PiAgent(
                     logs_dir=root / "logs",
                     model_name="openai/gpt-5.6-luna",
@@ -166,6 +326,27 @@ class PiAgentTest(unittest.TestCase):
                     auth_path=auth,
                     pi_commit="abc123",
                 )
+
+    def test_accepts_opencode_model_and_derives_allowlist(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "pi"
+            auth = root / "auth.json"
+            (root / "theme").mkdir()
+            (root / "theme" / "dark.json").write_text("{}")
+            (root / "theme" / "light.json").write_text("{}")
+            artifact.touch()
+            auth.touch()
+            agent = PiAgent(
+                logs_dir=root / "logs",
+                model_name="opencode/x-preview-f-free",
+                artifact_path=artifact,
+                auth_path=auth,
+                pi_commit="abc123",
+            )
+
+            self.assertEqual(agent.network_allowlist().domains, ["opencode.ai", "api.opencode.ai"])
+            self.assertEqual(agent.model_id, "x-preview-f-free")
 
 
 class PiAgentIsolationTest(unittest.IsolatedAsyncioTestCase):

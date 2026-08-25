@@ -20,7 +20,16 @@ from pier.models.trajectories import (
 )
 from pier.utils.trajectory_utils import format_trajectory_json
 
+# Protocol default (protocol.json); the adapter accepts any provider/model
+# so the DeepSWE path runs against whatever credential is available.
 MODEL = "openai-codex/gpt-5.6-luna"
+
+# Egress domains per provider: the sandbox network allowlist is derived from
+# the model's provider, not hardcoded to one vendor's auth stack.
+PROVIDER_DOMAINS = {
+    "openai-codex": ["auth.openai.com", "chatgpt.com"],
+    "opencode": ["opencode.ai", "api.opencode.ai"],
+}
 
 
 def _text(content: object) -> str:
@@ -242,10 +251,14 @@ class PiAgent(BaseAgent):
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
-        if self.model_name != MODEL:
-            raise ValueError(f"Stock-vs-Improved runs require GPT-5.6 Luna ({MODEL})")
-        if reasoning_effort != "medium":
-            raise ValueError("Stock-vs-Improved runs require medium reasoning effort")
+        provider, _, model_id = self.model_name.partition("/")
+        if provider not in PROVIDER_DOMAINS or not model_id:
+            raise ValueError(
+                f"Unsupported model {self.model_name!r}; expected provider/model "
+                f"with provider in {sorted(PROVIDER_DOMAINS)}"
+            )
+        self.provider = provider
+        self.model_id = model_id
         self.artifact_path = Path(artifact_path).resolve(strict=True)
         self.auth_path = Path(auth_path).resolve(strict=True)
         self.theme_path = self.artifact_path.parent.joinpath("theme").resolve(
@@ -265,7 +278,7 @@ class PiAgent(BaseAgent):
         return self.pi_commit
 
     def network_allowlist(self) -> NetworkAllowlist:
-        return NetworkAllowlist(domains=["auth.openai.com", "chatgpt.com"])
+        return NetworkAllowlist(domains=PROVIDER_DOMAINS[self.provider])
 
     async def setup(self, environment: BaseEnvironment) -> None:
         await environment.exec(
@@ -298,7 +311,8 @@ class PiAgent(BaseAgent):
                 "/installed-agent/pi",
                 "--mode json --print --no-session --offline --approve",
                 "--no-extensions --no-skills --no-prompt-templates --no-themes",
-                "--provider openai-codex --model gpt-5.6-luna --thinking medium",
+                f"--provider {self.provider} --model {self.model_id}"
+                f" --thinking {self.reasoning_effort}",
                 shlex.quote(instruction),
             ]
         )
@@ -326,7 +340,7 @@ class PiAgent(BaseAgent):
         trajectory = trajectory_from_jsonl(
             instruction,
             stdout,
-            model_name=MODEL,
+            model_name=self.model_name,
             version=self.pi_commit,
             reasoning_effort=self.reasoning_effort,
         )
