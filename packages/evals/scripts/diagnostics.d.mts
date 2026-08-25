@@ -58,23 +58,6 @@ export function parsePiEvents(stdout: string): {
 	freshContextRepairSucceeded?: boolean;
 };
 
-export interface CompletionSignature {
-	mutations: number;
-	commands: number;
-	testCommands: number;
-	bundledTestCommands: number;
-	selfTestCommands: number;
-	unattributedTestCommands: number;
-	specReads: number;
-	mutationsAfterLastCommand: 0 | 1;
-	commandsAfterLastMutation: number;
-	bundledOnlyAfterLastMutation: boolean;
-	/** Final post-mutation bundled-only run ended without error (toolCallId-paired). */
-	bundledGreenAfterLastMutation: boolean;
-	unverifiedFinalMutation: boolean;
-}
-
-export function completionSignature(phaseStdouts: string[], bundledTestNames?: string[]): CompletionSignature;
 
 export function prepareWorkspace(fixture: string, workspace: string): Promise<void>;
 

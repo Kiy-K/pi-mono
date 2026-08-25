@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { completionSignature } from "../scripts/diagnostics.mjs";
+import { completionSignature } from "../src/completion-signature.mjs";
 
 /** Build a minimal pi JSON event stream from tool names, in start order. */
 function stream(tools: Array<{ name: string; error?: boolean; args?: unknown; id?: string }>): string {
