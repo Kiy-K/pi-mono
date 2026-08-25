@@ -186,3 +186,32 @@ npm run --workspace @earendil-works/pi-evals diagnostics -- run \
 
 Raw events, stderr, workspaces, and summaries are written under ignored `.eval/diagnostics/`. A compact complete record
 is appended to `EXPERIMENTS.jsonl`; it includes failures and missing telemetry rather than silently dropping them.
+
+## Task verifier contract
+
+Diagnostic tasks (`diagnostics/tasks/<id>/`: SPEC.md, stub modules, bundled tests) are scored by external verifiers
+(`diagnostics/verifiers/<id>.py`) that run against the model's workspace and print a JSON verdict. A verifier is valid
+only when all three hold, and each is pinned by a persisted mutant-attribution test (`test/*-verifier-mutants.test.ts`):
+
+1. A SPEC-faithful reference implementation passes every check.
+2. Every plausible wrong rule (one mutant per SPEC clause) is rejected by a NAMED check.
+3. Every named check attributes at least one mutant - no dead checks.
+
+Verifier conventions learned from audits (keep them or fix the audit tests):
+
+- Register loaded modules with `sys.modules[name] = module` before `spec.loader.exec_module(module)`:
+  `dataclasses` resolves `cls.__module__` through `sys.modules`, so submissions using
+  `from __future__ import annotations` with `@dataclass` otherwise crash the verifier before any verdict.
+- Verifiers stay single-file, self-contained Python: run manifests hash the verifier file alone, so a shared helper
+  module would silently escape provenance.
+- Bundled tests are deliberately weaker than SPEC; the verifier owns every SPEC clause the bundled suite misses.
+  A mutant that survives the bundled suite but falls to a named check is the fixture working as designed
+  (the false-green trap), not a bug.
+
+## Completion signatures
+
+`completionSignature` in `scripts/diagnostics.mjs` turns each rep's tool-event stream into stopping-behavior signals:
+mutation/test-command counts, SPEC reads, `bundledOnlyAfterLastMutation` (every post-edit command was a bundled-suite
+run - ordering only), and `bundledGreenAfterLastMutation` (that final bundled run also ENDED without error, paired by
+`toolCallId` so interleaved calls cannot shadow it). A false green is the conjunction of a green bundled ending with a
+failing external verifier; ordering alone is not evidence of success.

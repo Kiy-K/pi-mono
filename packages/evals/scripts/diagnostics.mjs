@@ -842,6 +842,8 @@ async function main() {
 			agentDir: agentDirs,
 			sessionDir: sessionDirs,
 			environment: "isolated",
+			node: process.version,
+			platform: `${process.platform}/${process.arch}`,
 			extensions: {
 				required: requiredProvenance,
 				isolationSupport: isolationSupportProvenance,
