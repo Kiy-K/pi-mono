@@ -5,6 +5,19 @@ import type { BashOperations } from "@earendil-works/pi-coding-agent";
 
 const SANDBOX_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 
+// Resolve bwrap from the launcher PATH once at load time: spawn() below
+// clears the environment down to SANDBOX_PATH, which on some systems does
+// not contain bwrap (e.g. Homebrew at /home/linuxbrew/.linuxbrew/bin) and
+// every sandboxed command fails with `spawn bwrap ENOENT`.
+const BWRAP = (() => {
+	for (const dir of (process.env.PATH ?? "").split(":")) {
+		if (!dir) continue;
+		const candidate = `${dir}/bwrap`;
+		if (existsSync(candidate)) return candidate;
+	}
+	throw new Error("bwrap not found in PATH; install bubblewrap to use isolated bash");
+})();
+
 function killProcessGroup(pid: number | undefined): void {
 	if (!pid) return;
 	try {
@@ -70,7 +83,7 @@ export function createIsolatedBashOperations(): BashOperations {
 			);
 
 			return await new Promise<{ exitCode: number | null }>((resolve, reject) => {
-				const child = spawn("bwrap", args, {
+				const child = spawn(BWRAP, args, {
 					cwd: "/",
 					detached: true,
 					env: { PATH: SANDBOX_PATH },
