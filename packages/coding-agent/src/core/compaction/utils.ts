@@ -87,6 +87,8 @@ export function formatFileOperations(readFiles: string[], modifiedFiles: string[
 
 /** Maximum characters for a tool result in serialized summaries. */
 const TOOL_RESULT_MAX_CHARS = 2000;
+/** Error results carry failure evidence the summary must preserve; larger budget. */
+const ERROR_TOOL_RESULT_MAX_CHARS = 8000;
 
 /**
  * Truncate text to a maximum character length for summarization.
@@ -141,7 +143,8 @@ export function serializeConversation(messages: Message[]): string {
 		} else if (msg.role === "toolResult") {
 			const content = contentText(msg.content, "");
 			if (content) {
-				parts.push(`[Tool result]: ${truncateForSummary(content, TOOL_RESULT_MAX_CHARS)}`);
+				const maxChars = msg.isError ? ERROR_TOOL_RESULT_MAX_CHARS : TOOL_RESULT_MAX_CHARS;
+				parts.push(`[Tool result${msg.isError ? " (ERROR)" : ""}]: ${truncateForSummary(content, maxChars)}`);
 			}
 		}
 	}

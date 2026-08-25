@@ -25,6 +25,26 @@ describe("serializeConversation", () => {
 		expect(result).toContain("x".repeat(2000));
 	});
 
+	it("preserves error tool results with a larger budget and an ERROR tag", () => {
+		const errorContent = "e".repeat(5000);
+		const messages: Message[] = [
+			{
+				role: "toolResult",
+				toolCallId: "tc-err",
+				toolName: "bash",
+				content: [{ type: "text", text: errorContent }],
+				isError: true,
+				timestamp: Date.now(),
+			},
+		];
+
+		const result = serializeConversation(messages);
+
+		expect(result).toContain("[Tool result (ERROR)]:");
+		expect(result).toContain("e".repeat(5000));
+		expect(result).not.toContain("truncated");
+	});
+
 	it("should not truncate short tool results", () => {
 		const shortContent = "x".repeat(1500);
 		const messages: Message[] = [
