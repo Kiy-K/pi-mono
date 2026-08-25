@@ -42,7 +42,8 @@ function loadDotEnv(path) {
 		if (match && !(match[1] in process.env)) process.env[match[1]] = match[2];
 	}
 }
-loadDotEnv(resolve(packageRoot, ".env"));
+// .env lives at the repository root (packageRoot is packages/evals).
+loadDotEnv(resolve(packageRoot, "..", "..", ".env"));
 
 // The preregistered spec-verification directive (spec-verification-append.md,
 // 2026-08-24). Applied ONLY to the improved arm via --arm both.
