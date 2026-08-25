@@ -1,4 +1,9 @@
 export {
+	type AstGrepToolInput,
+	createAstGrepTool,
+	createAstGrepToolDefinition,
+} from "./ast-grep.ts";
+export {
 	type BashOperations,
 	type BashSpawnContext,
 	type BashSpawnHook,
@@ -70,6 +75,7 @@ export {
 
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { ToolDefinition } from "../extensions/types.ts";
+import { createAstGrepTool, createAstGrepToolDefinition } from "./ast-grep.ts";
 import { type BashToolOptions, createBashTool, createBashToolDefinition } from "./bash.ts";
 import { createEditTool, createEditToolDefinition, type EditToolOptions } from "./edit.ts";
 import { createFindTool, createFindToolDefinition, type FindToolOptions } from "./find.ts";
@@ -80,8 +86,8 @@ import { createWriteTool, createWriteToolDefinition, type WriteToolOptions } fro
 
 export type Tool = AgentTool<any>;
 export type ToolDef = ToolDefinition<any, any>;
-export type ToolName = "read" | "bash" | "edit" | "write" | "grep" | "find" | "ls";
-export const allToolNames: Set<ToolName> = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
+export type ToolName = "read" | "bash" | "edit" | "write" | "grep" | "find" | "ls" | "ast_grep";
+export const allToolNames: Set<ToolName> = new Set(["read", "bash", "edit", "write", "grep", "find", "ls", "ast_grep"]);
 
 export interface ToolsOptions {
 	read?: ReadToolOptions;
@@ -105,6 +111,8 @@ export function createToolDefinition(toolName: ToolName, cwd: string, options?: 
 			return createWriteToolDefinition(cwd, options?.write);
 		case "grep":
 			return createGrepToolDefinition(cwd, options?.grep);
+		case "ast_grep":
+			return createAstGrepToolDefinition(cwd);
 		case "find":
 			return createFindToolDefinition(cwd, options?.find);
 		case "ls":
@@ -126,6 +134,8 @@ export function createTool(toolName: ToolName, cwd: string, options?: ToolsOptio
 			return createWriteTool(cwd, options?.write);
 		case "grep":
 			return createGrepTool(cwd, options?.grep);
+		case "ast_grep":
+			return createAstGrepTool(cwd);
 		case "find":
 			return createFindTool(cwd, options?.find);
 		case "ls":
@@ -150,6 +160,7 @@ export function createReadOnlyToolDefinitions(cwd: string, options?: ToolsOption
 		createGrepToolDefinition(cwd, options?.grep),
 		createFindToolDefinition(cwd, options?.find),
 		createLsToolDefinition(cwd, options?.ls),
+		createAstGrepToolDefinition(cwd),
 	];
 }
 
@@ -162,6 +173,7 @@ export function createAllToolDefinitions(cwd: string, options?: ToolsOptions): R
 		grep: createGrepToolDefinition(cwd, options?.grep),
 		find: createFindToolDefinition(cwd, options?.find),
 		ls: createLsToolDefinition(cwd, options?.ls),
+		ast_grep: createAstGrepToolDefinition(cwd),
 	};
 }
 
@@ -180,6 +192,7 @@ export function createReadOnlyTools(cwd: string, options?: ToolsOptions): Tool[]
 		createGrepTool(cwd, options?.grep),
 		createFindTool(cwd, options?.find),
 		createLsTool(cwd, options?.ls),
+		createAstGrepTool(cwd),
 	];
 }
 
@@ -192,5 +205,6 @@ export function createAllTools(cwd: string, options?: ToolsOptions): Record<Tool
 		grep: createGrepTool(cwd, options?.grep),
 		find: createFindTool(cwd, options?.find),
 		ls: createLsTool(cwd, options?.ls),
+		ast_grep: createAstGrepTool(cwd),
 	};
 }

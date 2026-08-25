@@ -7,6 +7,7 @@ import { executeBashWithOperations } from "../src/core/bash-executor.ts";
 import { type BashOperations, createBashTool, createLocalBashOperations } from "../src/core/tools/bash.ts";
 import { computeEditsDiff } from "../src/core/tools/edit-diff.ts";
 import {
+	createAstGrepTool,
 	createEditTool,
 	createFindTool,
 	createGrepTool,
@@ -21,6 +22,7 @@ const writeTool = createWriteTool(process.cwd());
 const editTool = createEditTool(process.cwd());
 const bashTool = createBashTool(process.cwd());
 const grepTool = createGrepTool(process.cwd());
+const astGrepTool = createAstGrepTool(process.cwd());
 const findTool = createFindTool(process.cwd());
 const lsTool = createLsTool(process.cwd());
 
@@ -818,6 +820,45 @@ describe("Coding Agent Tools", () => {
 
 			expect(getTextOutput(result)).toContain("No matches found");
 			expect(existsSync(marker)).toBe(false);
+		});
+	});
+
+	describe("ast_grep tool", () => {
+		it("finds code by AST pattern with metavariables", async () => {
+			const testFile = join(testDir, "sample.ts");
+			writeFileSync(testFile, 'function greet(name: string) {\n\treturn "hi " + name;\n}\n');
+
+			const result = await astGrepTool.execute("test-call-ast-1", {
+				pattern: "function $NAME($$$ARGS) { $$$BODY }",
+				path: testFile,
+				lang: "TypeScript",
+			});
+
+			const output = getTextOutput(result);
+			expect(output).toContain("sample.ts:1:");
+			expect(output).toContain("function greet");
+		});
+
+		it("outlines declarations by kind", async () => {
+			const testFile = join(testDir, "outline.ts");
+			writeFileSync(testFile, "class Alpha {}\nfunction beta() {}\nconst gamma = 1;\n");
+
+			const result = await astGrepTool.execute("test-call-ast-2", {
+				kind: "class_declaration,function_declaration",
+				path: testFile,
+				lang: "TypeScript",
+			});
+
+			const output = getTextOutput(result);
+			expect(output).toContain("class Alpha");
+			expect(output).toContain("function beta");
+			expect(output).not.toContain("gamma");
+		});
+
+		it("rejects calls without pattern or kind", async () => {
+			await expect(astGrepTool.execute("test-call-ast-3", { path: testDir })).rejects.toThrow(
+				/Provide either 'pattern'/,
+			);
 		});
 	});
 

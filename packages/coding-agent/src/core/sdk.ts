@@ -17,6 +17,7 @@ import { getDefaultSessionDir, SessionManager } from "./session-manager.ts";
 import { SettingsManager } from "./settings-manager.ts";
 import { time } from "./timings.ts";
 import {
+	createAstGrepTool,
 	createBashTool,
 	createCodingTools,
 	createEditTool,
@@ -123,6 +124,7 @@ export {
 	createEditTool,
 	createWriteTool,
 	createGrepTool,
+	createAstGrepTool,
 	createFindTool,
 	createLsTool,
 };
@@ -251,7 +253,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		thinkingLevel = clampThinkingLevel(model, thinkingLevel) as ThinkingLevel;
 	}
 
-	const defaultActiveToolNames: ToolName[] = ["read", "bash", "edit", "write"];
+	const defaultActiveToolNames: ToolName[] = ["read", "bash", "edit", "write", "ast_grep"];
 	const configuredDefaultToolNames = settingsManager.getDefaultTools();
 	const allowedToolNames = options.tools ?? (options.noTools === "all" ? [] : undefined);
 	const excludedToolNames = options.excludeTools;

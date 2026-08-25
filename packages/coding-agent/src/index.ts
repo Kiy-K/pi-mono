@@ -211,8 +211,9 @@ export {
 	createAgentSessionFromServices,
 	createAgentSessionRuntime,
 	createAgentSessionServices,
-	createBashTool,
 	// Tool factories (for custom cwd)
+	createAstGrepTool,
+	createBashTool,
 	createCodingTools,
 	createEditTool,
 	createFindTool,
@@ -280,6 +281,7 @@ export {
 	type BashToolDetails,
 	type BashToolInput,
 	type BashToolOptions,
+	createAstGrepToolDefinition,
 	createBashToolDefinition,
 	createEditToolDefinition,
 	createFindToolDefinition,
