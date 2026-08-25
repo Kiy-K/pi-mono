@@ -5,19 +5,19 @@ import { type Static, Type } from "typebox";
 import type { ToolDefinition } from "../extensions/types.ts";
 import { resolveToCwd } from "./path-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
-import { DEFAULT_MAX_BYTES, type TruncationResult, truncateHead, truncateLine } from "./truncate.ts";
+import { type TruncationResult, truncateHead, truncateLine } from "./truncate.ts";
 
 const astGrepSchema = Type.Object({
 	pattern: Type.Optional(
 		Type.String({
 			description:
-				"AST pattern to search for. Must parse as a COMPLETE syntax node (e.g. 'function $NAME($$$ARGS) { $$$BODY }'). $VAR captures one node, $$$CAPS zero or more. The same metavariable used twice must match identical code.",
+				"AST pattern; must be a complete syntax node, e.g. 'function $NAME($$$ARGS) { $$$BODY }'. $VAR captures one node, $$$CAPS zero or more.",
 		}),
 	),
 	kind: Type.Optional(
 		Type.String({
 			description:
-				"Syntax-tree node kind to list instead of a pattern, e.g. 'function_declaration', 'class_declaration', 'method_definition' (TS/JS), 'function_definition'/'class_definition' (Python), 'function_item' (Rust). Comma-separated kinds are allowed for an outline. Use a pattern (not kind) to find code by structure.",
+				"Syntax-tree node kind to list instead of a pattern, e.g. function_declaration, method_definition (TS/JS), function_definition (Python), function_item (Rust). Comma-separated kinds are allowed.",
 		}),
 	),
 	path: Type.Optional(Type.String({ description: "File or directory to search (default: current directory)" })),
@@ -105,7 +105,7 @@ export function createAstGrepToolDefinition(
 	return {
 		name: "ast_grep",
 		label: "ast-grep",
-		description: `Structural code search using ast-grep (tree-sitter based). Two modes: (1) pattern search - match code by AST structure with metavariables, robust to formatting and renaming; (2) kind listing - outline all declarations of a syntax kind (functions, classes, methods) with line numbers. Patterns must be complete syntax nodes; partial constructs like 'function $NAME($$$A)' without a body do not parse. Output is truncated to ${DEFAULT_LIMIT} matches or ${DEFAULT_MAX_BYTES / 1024}KB.`,
+		description: `Structural code search via ast-grep. pattern: AST pattern with $VAR / $$$CAPS metavariables; must be a complete syntax node. kind: list declarations of a syntax-tree kind (outline; comma-separate for several). Prefer grep for plain text search.`,
 		promptSnippet: astGrepToolSystemPromptContribution.snippet,
 		parameters: astGrepSchema,
 		async execute(
