@@ -34,6 +34,9 @@ import { hashFile, hashTree, prepareTreatmentSupport, runTreatment } from "./dia
 
 const packageRoot = resolve(import.meta.dirname, "..");
 
+// Verifier files shared across tasks; hashed into every run manifest.
+const VERIFIER_SHARED_FILES = ["_common.py"];
+
 // Load the gitignored repo-root .env (KEY=value lines) if present. Existing
 // process env wins; values are never logged.
 function loadDotEnv(path) {
@@ -145,6 +148,12 @@ async function main() {
 				task: t.id,
 				path: t.verifier,
 				sha256: hashFile(resolve(packageRoot, "diagnostics", t.verifier)),
+				// Shared verifier dependencies: adding a file here requires
+				// listing it, or its changes escape provenance.
+				shared: VERIFIER_SHARED_FILES.map((name) => ({
+					path: `diagnostics/verifiers/${name}`,
+					sha256: hashFile(resolve(packageRoot, "diagnostics", "verifiers", name)),
+				})),
 			})),
 			tasks: tasks.map((t) => ({
 				id: t.id,

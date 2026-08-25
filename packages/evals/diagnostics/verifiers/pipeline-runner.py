@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """External verifier for pipeline-runner. Every check derives only from SPEC text."""
-import importlib.util
 import pathlib
 import sys
 import types
@@ -28,13 +27,7 @@ def assert_equal(actual, expected, label):
 
 
 def load(name):
-    if name in sys.modules:
-        return sys.modules[name]
-    spec = importlib.util.spec_from_file_location(name, root / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module  # runner.py's plain `import stages` must resolve here
-    spec.loader.exec_module(module)
-    return module
+    return load_module(root, name)
 
 
 errors_mod = load("errors")
@@ -206,6 +199,7 @@ for fn in [
 
 # Re-run the task's own public suite as additional evidence.
 import io
+from _common import load_module
 
 suite = unittest.defaultTestLoader.discover(str(root), pattern="test_runner.py")
 public_runner = unittest.TextTestRunner(stream=io.StringIO(), verbosity=0)

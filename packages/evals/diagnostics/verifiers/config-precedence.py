@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-import importlib.util
 import json
 import pathlib
 import sys
 
 path = pathlib.Path(sys.argv[1]) / "config.py"
-spec = importlib.util.spec_from_file_location("config", path)
-module = importlib.util.module_from_spec(spec)
-sys.modules["config"] = module  # dataclasses resolves cls.__module__ via sys.modules; `from __future__ import annotations` submissions crash without this
-spec.loader.exec_module(module)
+from _common import load_module
+
+module = load_module(path.parent, "config")
 resolved = module.resolve_config(
     {"only_default": 1, "shared": "default"},
     {"only_file": 2, "shared": "file"},

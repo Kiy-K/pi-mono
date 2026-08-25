@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-import importlib.util
 import json
 import pathlib
 import sys
 
 path = pathlib.Path(sys.argv[1]) / "cache.py"
-spec = importlib.util.spec_from_file_location("cache", path)
-module = importlib.util.module_from_spec(spec)
-sys.modules["cache"] = module  # dataclasses resolves cls.__module__ via sys.modules; `from __future__ import annotations` submissions crash without this
-spec.loader.exec_module(module)
+from _common import load_module
+
+module = load_module(path.parent, "cache")
 passed = True
 for value in (0, False, "", None):
     calls = []

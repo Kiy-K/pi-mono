@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """External verifier for cache-consistency. Every check derives only from SPEC text."""
-import importlib.util
 import io
 import pathlib
 import sys
@@ -14,13 +13,7 @@ total = 0
 
 
 def load(name):
-    if name in sys.modules:
-        return sys.modules[name]
-    spec = importlib.util.spec_from_file_location(name, root / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module  # controller.py's plain `from replica import Replica` must resolve here
-    spec.loader.exec_module(module)
-    return module
+    return load_module(root, name)
 
 
 store_mod = load("store")
@@ -287,6 +280,7 @@ def interleaved_multi_sync_scenario():
 # --- Run every named check --------------------------------------------------
 
 import inspect as _inspect
+from _common import load_module
 
 CHECKS = [
     store_version_monotonic_interleaved,

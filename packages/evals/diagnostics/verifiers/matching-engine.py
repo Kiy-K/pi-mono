@@ -3,23 +3,19 @@
 SPEC text (crossing  pb>=ps; price-time priority; maker price = resting price;
 cancel frees id; book ordering; bound ValueError message). No reference engine
 is consulted."""
-import importlib.util
 import io
 import json
 import pathlib
 import sys
 import unittest
+from _common import load_module
 
 root = pathlib.Path(sys.argv[1])
 sys.path.insert(0, str(root))
 
 
 def load(name):
-    spec = importlib.util.spec_from_file_location(name, root / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module  # dataclasses resolves cls.__module__ via sys.modules; `from __future__ import annotations` submissions crash without this
-    spec.loader.exec_module(module)
-    return module
+    return load_module(root, name)
 
 
 engine = load("engine")
