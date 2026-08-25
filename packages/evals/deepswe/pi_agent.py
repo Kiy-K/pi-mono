@@ -1,5 +1,7 @@
 import json
+import os
 import shlex
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -245,7 +247,7 @@ class PiAgent(BaseAgent):
         self,
         *args: Any,
         artifact_path: str | Path,
-        auth_path: str | Path,
+        auth_path: str | Path | None = None,
         pi_commit: str,
         reasoning_effort: str = "medium",
         **kwargs: Any,
@@ -260,7 +262,7 @@ class PiAgent(BaseAgent):
         self.provider = provider
         self.model_id = model_id
         self.artifact_path = Path(artifact_path).resolve(strict=True)
-        self.auth_path = Path(auth_path).resolve(strict=True)
+        self.auth_path = self._resolve_auth(auth_path)
         self.theme_path = self.artifact_path.parent.joinpath("theme").resolve(
             strict=True
         )
@@ -269,6 +271,29 @@ class PiAgent(BaseAgent):
                 raise ValueError(f"Pi artifact is missing theme/{name}")
         self.pi_commit = pi_commit
         self.reasoning_effort = reasoning_effort
+
+    def _resolve_auth(self, auth_path: str | Path | None) -> Path:
+        """Credential resolution without any pre-installed stack: explicit
+        auth_path, then PI_CODING_AGENT_DIR/auth.json, then - API-key
+        providers only - a synthesized auth file from the key's env var."""
+        if auth_path is not None:
+            return Path(auth_path).resolve(strict=True)
+        agent_dir = os.environ.get("PI_CODING_AGENT_DIR")
+        if agent_dir:
+            candidate = Path(agent_dir) / "auth.json"
+            if candidate.is_file():
+                return candidate.resolve()
+        key_env = f"{self.provider.upper().replace('-', '_')}_API_KEY"
+        key = os.environ.get(key_env)
+        if self.provider == "opencode" and key:
+            auth = Path(tempfile.gettempdir()) / f"pi-deepswe-auth-{os.getpid()}.json"
+            auth.write_text(json.dumps({"opencode": {"type": "api_key", "key": key}}))
+            auth.chmod(0o600)
+            return auth
+        raise ValueError(
+            "No credential: pass auth_path, set PI_CODING_AGENT_DIR to a dir "
+            f"containing auth.json, or set {key_env} (supported for opencode)"
+        )
 
     @staticmethod
     def name() -> str:

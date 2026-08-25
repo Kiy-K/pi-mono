@@ -1,11 +1,23 @@
+import asyncio
 import json
 import sys
 import tempfile
 import types
 import unittest
+import unittest.mock
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+
+def _fake_exec_with_stdout(environment, stdout):
+	async def exec(command, cwd=None, env=None, **_kwargs):
+		environment.commands.append((command, cwd, env))
+		if command.startswith("/installed-agent/pi"):
+			return ExecResult(stdout=stdout, stderr="", return_code=0)
+		return ExecResult(stdout="", stderr="", return_code=0)
+
+	return exec
 
 
 def _install_pier_stubs() -> None:
@@ -310,6 +322,125 @@ class PiAgentTest(unittest.TestCase):
             self.assertEqual(context.n_cache_tokens, 3)
             self.assertEqual(context.n_output_tokens, 4)
             self.assertEqual(context.n_agent_steps, 1)
+
+    def test_resolves_auth_from_env_without_installed_stack(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "pi"
+            (root / "theme").mkdir()
+            (root / "theme" / "dark.json").write_text("{}")
+            (root / "theme" / "light.json").write_text("{}")
+            artifact.touch()
+
+            # OPENCODE_API_KEY synthesizes a 0600 auth file; no auth_path needed.
+            with unittest.mock.patch.dict(
+                "os.environ",
+                {"OPENCODE_API_KEY": "zk-test-key", "PI_CODING_AGENT_DIR": ""},
+            ):
+                agent = PiAgent(
+                    logs_dir=root / "logs",
+                    model_name="opencode/x-preview-f-free",
+                    artifact_path=artifact,
+                    pi_commit="abc123",
+                )
+            self.assertEqual(json.loads(agent.auth_path.read_text())["opencode"]["key"], "zk-test-key")
+            self.assertEqual(agent.auth_path.stat().st_mode & 0o777, 0o600)
+
+            # PI_CODING_AGENT_DIR/auth.json wins when present; explicit auth_path
+            # wins over both; nothing available raises a clear error.
+            agent_dir = root / "agent-dir"
+            agent_dir.mkdir()
+            (agent_dir / "auth.json").write_text('{"from": "agent-dir"}')
+            with unittest.mock.patch.dict(
+                "os.environ",
+                {"OPENCODE_API_KEY": "zk-test-key", "PI_CODING_AGENT_DIR": str(agent_dir)},
+            ):
+                agent = PiAgent(
+                    logs_dir=root / "logs",
+                    model_name="opencode/x-preview-f-free",
+                    artifact_path=artifact,
+                    pi_commit="abc123",
+                )
+            self.assertEqual(json.loads(agent.auth_path.read_text())["from"], "agent-dir")
+            explicit = root / "explicit.json"
+            explicit.write_text('{"from": "explicit"}')
+            with unittest.mock.patch.dict("os.environ", {"PI_CODING_AGENT_DIR": str(agent_dir)}):
+                agent = PiAgent(
+                    logs_dir=root / "logs",
+                    model_name="opencode/x-preview-f-free",
+                    artifact_path=artifact,
+                    auth_path=explicit,
+                    pi_commit="abc123",
+                )
+            self.assertEqual(json.loads(agent.auth_path.read_text())["from"], "explicit")
+            with unittest.mock.patch.dict("os.environ", {}, clear=True):
+                with self.assertRaisesRegex(ValueError, "No credential"):
+                    PiAgent(
+                        logs_dir=root / "logs",
+                        model_name="opencode/x-preview-f-free",
+                        artifact_path=artifact,
+                        pi_commit="abc123",
+                    )
+
+    def test_smoke_runs_opencode_model_without_installed_stack(self) -> None:
+        """End-to-end adapter smoke on the OpenCode credential path."""
+
+        class FakeEnvironment:
+            default_user = "agent"
+
+            def __init__(self) -> None:
+                self.commands: list[tuple[str, str | None, dict[str, str] | None]] = []
+
+            async def exec(self, command, cwd=None, env=None, **_kwargs):
+                self.commands.append((command, cwd, env))
+                if command.startswith("/installed-agent/pi"):
+                    return ExecResult(stdout=STDOUT, stderr="", return_code=0)
+                return ExecResult(stdout="", stderr="", return_code=0)
+
+            async def upload_file(self, _source, target):
+                pass
+
+            async def upload_dir(self, _source, target):
+                pass
+
+            @staticmethod
+            def agent_process_env(env):
+                return env
+
+        STDOUT = json.dumps(
+            {
+                "type": "message_end",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "done"}],
+                    "usage": {},
+                    "stopReason": "stop",
+                },
+            }
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "pi"
+            (root / "theme").mkdir()
+            (root / "theme" / "dark.json").write_text("{}")
+            (root / "theme" / "light.json").write_text("{}")
+            artifact.touch()
+            environment = FakeEnvironment()
+            with unittest.mock.patch.dict("os.environ", {"OPENCODE_API_KEY": "zk-test-key", "PI_CODING_AGENT_DIR": ""}):
+                agent = PiAgent(
+                    logs_dir=root / "logs",
+                    model_name="opencode/x-preview-f-free",
+                    artifact_path=artifact,
+                    pi_commit="abc123",
+                )
+                context = AgentContext()
+                asyncio.run(agent.run("Fix the bug", environment, context))  # type: ignore[arg-type]
+
+        command, cwd, _ = environment.commands[-1]
+        self.assertIn("--provider opencode --model x-preview-f-free", command)
+        self.assertIn("--thinking medium", command)
+        self.assertEqual(cwd, "/app")
+        self.assertEqual(context.n_agent_steps, 1)
 
     def test_rejects_unknown_provider(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
