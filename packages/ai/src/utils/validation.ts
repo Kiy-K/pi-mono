@@ -344,7 +344,12 @@ export function validateToolArguments(tool: Tool, toolCall: ToolCall): any {
 			.map((error) => `  - ${formatValidationPath(error)}: ${error.message}`)
 			.join("\n") || "Unknown validation error";
 
-	const errorMessage = `Validation failed for tool "${toolCall.name}":\n${errors}\n\nReceived arguments:\n${JSON.stringify(toolCall.arguments, null, 2)}`;
+	const receivedArgs = toolCall.arguments ?? {};
+	const parseHint =
+		Object.keys(receivedArgs).length === 0
+			? "\n\nThe arguments object is empty - the tool call arguments were likely malformed or truncated JSON that could not be parsed. Re-issue the complete tool call with valid JSON arguments."
+			: "";
+	const errorMessage = `Validation failed for tool "${toolCall.name}":\n${errors}\n\nReceived arguments:\n${JSON.stringify(receivedArgs, null, 2)}${parseHint}`;
 
 	throw new Error(errorMessage);
 }

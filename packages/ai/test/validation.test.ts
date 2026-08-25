@@ -207,4 +207,41 @@ describe("validateToolArguments", () => {
 			expect(() => validateToolArguments(tool, toolCall)).toThrow("Validation failed");
 		}
 	});
+	it("guides re-issue when arguments arrive empty for a tool with required params", () => {
+		const tool: Tool = {
+			name: "echo",
+			description: "Echo tool",
+			parameters: Type.Object({ value: Type.String() }),
+		};
+		const toolCall: ToolCall = {
+			type: "toolCall",
+			id: "tool-1",
+			name: "echo",
+			arguments: {},
+		};
+
+		expect(() => validateToolArguments(tool, toolCall)).toThrow(/malformed or truncated JSON/);
+	});
+
+	it("omits the parse hint when arguments are non-empty", () => {
+		const tool: Tool = {
+			name: "echo",
+			description: "Echo tool",
+			parameters: Type.Object({ value: Type.String() }),
+		};
+		const toolCall: ToolCall = {
+			type: "toolCall",
+			id: "tool-1",
+			name: "echo",
+			arguments: { wrong: "x" },
+		};
+		try {
+			validateToolArguments(tool, toolCall);
+			expect.unreachable("expected validation to throw");
+		} catch (error) {
+			const message = (error as Error).message;
+			expect(message).toMatch(/Received arguments/);
+			expect(message).not.toMatch(/malformed or truncated JSON/);
+		}
+	});
 });
