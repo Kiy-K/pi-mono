@@ -327,6 +327,10 @@ export class AgentSession {
 	private _followUpMessages: string[] = [];
 	/** Messages queued to be included with the next user prompt as context ("asides"). */
 	private _pendingNextTurnMessages: CustomMessage[] = [];
+	// Completion guard: edit/write leave changes unverified until a command
+	// runs again; nudges are budgeted per agent run.
+	private _unverifiedEdits = false;
+	private _completionNudges = 0;
 
 	// Compaction state
 	private _compactionAbortController: AbortController | undefined = undefined;
@@ -504,6 +508,15 @@ export class AgentSession {
 		};
 
 		this.agent.afterToolCall = async ({ toolCall, args, result, isError }) => {
+			// Completion guard tracking: a successful edit/write marks changes as
+			// unverified; any successful command re-verifies.
+			if (!isError) {
+				if (toolCall.name === "edit" || toolCall.name === "write") {
+					this._unverifiedEdits = true;
+				} else if (toolCall.name === "bash") {
+					this._unverifiedEdits = false;
+				}
+			}
 			const runner = this._extensionRunner;
 			const hookResult = runner.hasHandlers("tool_result")
 				? await runner.emitToolResult({
@@ -544,6 +557,25 @@ export class AgentSession {
 				? async (_turn: PrepareNextTurnContext, signal?: AbortSignal) => await this.agent.prepareNextTurn?.(signal)
 				: undefined);
 		this.agent.prepareNextTurnWithContext = async (turn, signal) => {
+			// Completion guard: when the agent is about to stop right after
+			// editing files without running anything since, queue a follow-up
+			// nudging it to verify first. Budgeted so it cannot loop forever.
+			const hasToolCalls = turn.message.content.some((block) => block.type === "toolCall");
+			if (
+				!hasToolCalls &&
+				this._unverifiedEdits &&
+				this._completionNudges < 2 &&
+				this.getActiveToolNames().includes("bash")
+			) {
+				// The flag stays set: only a successful command run clears it.
+				this._completionNudges += 1;
+				this.agent.followUp({
+					role: "user",
+					content:
+						"Completion check: you modified files but have not run any command since the last modification. Run the relevant tests or checks for your changes before finishing.",
+					timestamp: Date.now(),
+				});
+			}
 			const previousSnapshot = await previousPrepareNextTurnWithContext?.(turn, signal);
 			const previousContext = previousSnapshot?.context ?? turn.context;
 
@@ -1073,6 +1105,7 @@ export class AgentSession {
 
 	private async _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
 		this._isAgentRunActive = true;
+		this._completionNudges = 0;
 		try {
 			await this.agent.prompt(messages);
 			while (await this._handlePostAgentRun()) {
