@@ -5,7 +5,7 @@
  * PROMO_REF; every mutant must be rejected by the external verifier.
  */
 
-export const NL = String.fromCharCode(92) + "n";
+export const NL = `${String.fromCharCode(92)}n`;
 const Q3 = String.fromCharCode(34).repeat(3);
 
 export const PROMO_REF = `${Q3}Promotions per SPEC.md.${Q3}
