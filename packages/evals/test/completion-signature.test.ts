@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest";
 import { completionSignature } from "../scripts/diagnostics.mjs";
 
 /** Build a minimal pi JSON event stream from tool names, in start order. */
-function stream(tools: Array<{ name: string; error?: boolean; args?: unknown }>): string {
+function stream(tools: Array<{ name: string; error?: boolean; args?: unknown; id?: string }>): string {
 	const lines: string[] = ['{"type":"session","version":3,"id":"t","timestamp":"t","cwd":"/w"}'];
-	for (const tool of tools) {
+	tools.forEach((tool, index) => {
+		const id = tool.id ?? `c-${index}`;
 		lines.push(
 			JSON.stringify({
 				type: "tool_execution_start",
-				toolCallId: `c-${tool.name}-${Math.random()}`,
+				toolCallId: id,
 				toolName: tool.name,
 				args: tool.args ?? {},
 			}),
@@ -16,13 +17,13 @@ function stream(tools: Array<{ name: string; error?: boolean; args?: unknown }>)
 		lines.push(
 			JSON.stringify({
 				type: "tool_execution_end",
-				toolCallId: "x",
+				toolCallId: id,
 				toolName: tool.name,
 				result: {},
 				isError: tool.error ?? false,
 			}),
 		);
-	}
+	});
 	lines.push('{"type":"message_end","message":{"role":"assistant","stopReason":"stop","usage":{}}}');
 	return `${lines.join("\n")}\n`;
 }
@@ -210,5 +211,51 @@ describe("completionSignature", () => {
 		// End-order mutant: last end event is the edit -> would flag.
 		const endOrderLastTool = JSON.parse(lines.at(-1)!).toolName;
 		expect(endOrderLastTool).toBe("edit");
+	});
+
+	it("marks bundledGreenAfterLastMutation only when the final bundled run ended without error", () => {
+		const green = completionSignature(
+			[stream([{ name: "edit" }, { name: "bash", args: { command: "python3 -m unittest test_promotions -v" } }])],
+			["test_promotions.py"],
+		);
+		expect(green.bundledGreenAfterLastMutation).toBe(true);
+
+		const red = completionSignature(
+			[
+				stream([
+					{ name: "edit" },
+					{ name: "bash", args: { command: "python3 -m unittest test_promotions -v" }, error: true },
+				]),
+			],
+			["test_promotions.py"],
+		);
+		expect(red.bundledGreenAfterLastMutation).toBe(false);
+
+		// A bundled run BEFORE the last mutation says nothing about the final edit.
+		const stale = completionSignature(
+			[stream([{ name: "bash", args: { command: "python3 -m unittest test_promotions -v" } }, { name: "edit" }])],
+			["test_promotions.py"],
+		);
+		expect(stale.bundledGreenAfterLastMutation).toBe(false);
+	});
+
+	it("resolves green by toolCallId when ends interleave out of start order", () => {
+		// Starts: edit, bundled test, slow non-test command. Ends: the slow
+		// command and the edit close AFTER the bundled test - a naive
+		// "last end wins" would let the failing non-test end shadow it.
+		const lines = [
+			'{"type":"session","version":3,"id":"t","timestamp":"t","cwd":"/w"}',
+			'{"type":"tool_execution_start","toolCallId":"1","toolName":"edit","args":{}}',
+			'{"type":"tool_execution_start","toolCallId":"2","toolName":"bash","args":{"command":"python3 -m unittest test_promotions -v"}}',
+			'{"type":"tool_execution_start","toolCallId":"3","toolName":"bash","args":{"command":"ls"}}',
+			'{"type":"tool_execution_end","toolCallId":"3","toolName":"bash","result":{},"isError":true}',
+			'{"type":"tool_execution_end","toolCallId":"2","toolName":"bash","result":{},"isError":false}',
+			'{"type":"tool_execution_end","toolCallId":"1","toolName":"edit","result":{},"isError":false}',
+			'{"type":"message_end","message":{"role":"assistant","stopReason":"stop","usage":{}}}',
+		].join("\n");
+		const sig = completionSignature([`${lines}\n`], ["test_promotions.py"]);
+		expect(sig.bundledOnlyAfterLastMutation).toBe(false); // non-test command ran after the edit
+		// The bundled run itself resolved green via its own toolCallId.
+		expect(sig.bundledTestCommands).toBe(1);
 	});
 });

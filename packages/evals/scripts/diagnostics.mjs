@@ -294,6 +294,8 @@ export function completionSignature(phaseStdouts, bundledTestNames = []) {
 	let lastCommandSeq = -1;
 	let lastBundledTestSeq = -1;
 	let seq = 0;
+	const bundledOnlyCalls = new Map();
+	let lastBundledOnlyCallId;
 	for (const stdout of phaseStdouts) {
 		for (const line of stdout.split("\n")) {
 			if (!line.trim()) continue;
@@ -301,6 +303,14 @@ export function completionSignature(phaseStdouts, bundledTestNames = []) {
 			try {
 				event = JSON.parse(line);
 			} catch {
+				continue;
+			}
+			if (event.type === "tool_execution_end") {
+				// Resolve the matching bundled-only start by toolCallId: calls
+				// may interleave, so end order is not start order.
+				if (event.toolCallId != null && bundledOnlyCalls.has(event.toolCallId)) {
+					bundledOnlyCalls.get(event.toolCallId).ok = !event.isError;
+				}
 				continue;
 			}
 			if (event.type !== "tool_execution_start") continue;
@@ -333,6 +343,10 @@ export function completionSignature(phaseStdouts, bundledTestNames = []) {
 					// AND self-authored checks, so it breaks the claim. Any other
 					// non-test command after the mutation breaks it too.
 					const isBundledOnlyRun = hasBundled && !hasForeign;
+					if (isBundledOnlyRun && event.toolCallId != null) {
+						bundledOnlyCalls.set(event.toolCallId, { ok: null });
+						lastBundledOnlyCallId = event.toolCallId;
+					}
 					if (mutations > 0 && seq > lastMutationSeq && !isBundledOnlyRun) {
 						nonBundledCommandAfterLastMutation = true;
 					}
@@ -373,6 +387,17 @@ export function completionSignature(phaseStdouts, bundledTestNames = []) {
 		bundledOnlyAfterLastMutation:
 			mutations > 0 && lastBundledTestSeq > lastMutationSeq && !nonBundledCommandAfterLastMutation,
 		unverifiedFinalMutation: mutations > 0 && lastMutationSeq > lastCommandSeq,
+		// Green-bundled signal: the FINAL bundled-only run after the last
+		// mutation ENDED without error (paired by toolCallId, so a parallel
+		// call's late end cannot shadow it). Ordering
+		// (bundledOnlyAfterLastMutation) alone does not prove the suite
+		// passed; the conjunction with a failing external verifier is the
+		// false-green class.
+		bundledGreenAfterLastMutation:
+			mutations > 0 &&
+			lastBundledTestSeq > lastMutationSeq &&
+			lastBundledOnlyCallId != null &&
+			bundledOnlyCalls.get(lastBundledOnlyCallId)?.ok === true,
 	};
 }
 
