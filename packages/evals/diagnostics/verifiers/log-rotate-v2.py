@@ -18,6 +18,7 @@ sys.path.insert(0, str(root))
 def load(name):
     spec = importlib.util.spec_from_file_location(name, root / f"{name}.py")
     module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module  # dataclasses resolves cls.__module__ via sys.modules; `from __future__ import annotations` submissions crash without this
     spec.loader.exec_module(module)
     return module
 
