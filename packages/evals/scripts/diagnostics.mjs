@@ -281,7 +281,7 @@ export function parsePiEvents(stdout) {
 export function completionSignature(phaseStdouts, bundledTestNames = []) {
 	const MUTATORS = new Set(["write", "edit"]);
 	const TEST_COMMAND = /(unittest|pytest|\btest_[a-z0-9_]+\.py\b)/;
-	const bundled = new Set(bundledTestNames);
+	const bundled = new Set(bundledTestNames.map((name) => name.replace(/\.py$/, "")));
 	let mutations = 0;
 	let commands = 0;
 	let testCommands = 0;
@@ -310,13 +310,16 @@ export function completionSignature(phaseStdouts, bundledTestNames = []) {
 				const command = typeof event.args === "string" ? event.args : (event.args?.command ?? "");
 				if (TEST_COMMAND.test(command)) {
 					testCommands += 1;
-					// Attribution uses ONLY explicit test filenames in the command:
-					// a bundled name -> bundled run; another test_*.py name ->
-					// self-authored; a bare `unittest`/`pytest` (e.g. discover,
-					// which sweeps self-authored files too) is unattributable.
-					const named = command.match(/\btest_[a-z0-9_]+\.py\b/g) ?? [];
-					const hasBundled = named.some((name) => bundled.has(name));
-					const hasForeign = named.some((name) => !bundled.has(name));
+					// Attribution uses ONLY explicit test references in the command,
+					// in filename (test_promotions.py) OR module form (unittest
+					// test_promotions): a bundled reference -> bundled run; any
+					// other test reference -> self-authored; a bare
+					// `unittest`/`pytest` (e.g. discover, which sweeps
+					// self-authored files too) is unattributable.
+					const named = command.match(/\btest_[a-z0-9_]+(?:\.py)?\b/g) ?? [];
+					const stems = new Set(named.map((name) => name.replace(/\.py$/, "")));
+					const hasBundled = [...stems].some((stem) => bundled.has(stem));
+					const hasForeign = [...stems].some((stem) => !bundled.has(stem));
 					if (hasBundled) {
 						bundledTestCommands += 1;
 						lastBundledTestSeq = seq;

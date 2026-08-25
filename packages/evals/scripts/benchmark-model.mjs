@@ -24,26 +24,15 @@
  * EXPERIMENTS.jsonl; results land in .eval/benchmarks/<runId>/summary.json
  * for curation.
  */
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { prepareTreatmentSupport, runTreatment } from "./diagnostics.mjs";
+import { hashFile, hashTree, prepareTreatmentSupport, runTreatment } from "./diagnostics.mjs";
 
 const packageRoot = resolve(import.meta.dirname, "..");
-
-// Load the gitignored repo-root .env (KEY=value lines) if present. Existing
-// process env wins; values are never logged.
-function loadDotEnv(path) {
-	if (!existsSync(path)) return;
-	for (const line of readFileSync(path, "utf8").split("\n")) {
-		const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-		if (match && !(match[1] in process.env)) process.env[match[1]] = match[2];
-	}
-}
-// .env lives at the repository root (packageRoot is packages/evals).
-loadDotEnv(resolve(packageRoot, "..", "..", ".env"));
 
 // The preregistered spec-verification directive (spec-verification-append.md,
 // 2026-08-24). Applied ONLY to the improved arm via --arm both.
@@ -90,10 +79,10 @@ async function main() {
 	const agentDir = await mkdtemp(join(tmpdir(), "pi-bench-agent-"));
 	const arms = options.arm === "both" ? ["stock", "improved"] : [options.arm];
 	const results = [];
+	const isolationSupportPath = await prepareTreatmentSupport(repository, runId);
 	try {
 		await writeFile(join(agentDir, "auth.json"), `${JSON.stringify({ opencode: { type: "api_key", key: apiKey } })}\n`);
 
-		const isolationSupportPath = await prepareTreatmentSupport(repository, runId);
 		for (const task of tasks) {
 			for (let repetition = 1; repetition <= options.reps; repetition += 1) {
 				for (const arm of arms) {
@@ -126,6 +115,40 @@ async function main() {
 	} finally {
 		await rm(agentDir, { recursive: true, force: true });
 	}
+
+	// Run-manifest provenance (AGENTS Evaluation Evidence): source, build,
+	// evaluator/provider, task revision, environment.
+	const provenance = {
+		baseline: {
+			repository,
+			commit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: repository }).toString().trim(),
+			launcher: join(repository, "pi-test.sh"),
+		},
+		modelIdentity:
+			"opencode/x-preview-f-free per pi's opencode catalog (openai-completions, https://opencode.ai/zen); " +
+			"user-declared 'Ox Alpha Free from OpenCode Zen'; this session's harness reports opencode-zen/x-preview-f-free " +
+			"as the serving model for ox-alpha. Zen catalog listing returned 403 (model-scoped key), so identity rests on " +
+			"the session harness string + catalog entry, not a live catalog query.",
+		evaluator: {
+			verifiers: tasks.map((t) => ({
+				task: t.id,
+				path: t.verifier,
+				sha256: hashFile(resolve(packageRoot, "diagnostics", t.verifier)),
+			})),
+			tasks: tasks.map((t) => ({
+				id: t.id,
+				fixture: t.fixture,
+				hash: hashTree(resolve(packageRoot, "diagnostics", t.fixture)),
+			})),
+			intervention: options.arm === "both" ? "spec-verification-append (preregistered 2026-08-24)" : "none",
+		},
+		environment: {
+			node: process.version,
+			platform: `${process.platform}/${process.arch}`,
+			isolation: "pi-test.sh --no-env strips ambient API keys; model key in temp agent-dir auth.json (removed post-run)",
+			extensions: [isolationSupportPath],
+		},
+	};
 	const summary = {
 		schemaVersion: 1,
 		kind: "benchmark",
@@ -135,6 +158,7 @@ async function main() {
 		arms,
 		tasks: tasks.map((t) => t.id),
 		repetitions: options.reps,
+		provenance,
 		results,
 	};
 	await writeFile(join(runRoot, "summary.json"), `${JSON.stringify(summary, null, 2)}\n`);

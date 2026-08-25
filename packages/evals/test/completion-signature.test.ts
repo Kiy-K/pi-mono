@@ -140,6 +140,16 @@ describe("completionSignature", () => {
 		expect(sig.selfTestCommands).toBe(1);
 	});
 
+	it("attributes module-form invocations (unittest test_promotions, no .py) as bundled", () => {
+		const sig = completionSignature(
+			[stream([{ name: "edit" }, { name: "bash", args: { command: "python3 -m unittest test_promotions -v" } }])],
+			["test_promotions.py"],
+		);
+		expect(sig.bundledTestCommands).toBe(1);
+		expect(sig.unattributedTestCommands).toBe(0);
+		expect(sig.bundledOnlyAfterLastMutation).toBe(true);
+	});
+
 	it("does not flag bundled-only when one command mixes bundled and self-authored test files", () => {
 		const sig = completionSignature(
 			[
