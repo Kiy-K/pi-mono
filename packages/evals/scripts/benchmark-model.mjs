@@ -19,17 +19,30 @@
  *     --tasks cart-promotions --reps 5 [--thinking medium] [--arm both]
  *
  * The model key is read from OPENCODE_API_KEY (or --auth-file pointing at a
- * JSON {"apiKey": "..."} file). Nothing is written to EXPERIMENTS.jsonl;
- * results land in .eval/benchmarks/<runId>/summary.json for curation.
+ * JSON {"apiKey": "..."} file); the gitignored repo-root .env is loaded if
+ * present (existing process env wins). Nothing is written to
+ * EXPERIMENTS.jsonl; results land in .eval/benchmarks/<runId>/summary.json
+ * for curation.
  */
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { prepareTreatmentSupport, runTreatment } from "./diagnostics.mjs";
 
 const packageRoot = resolve(import.meta.dirname, "..");
+
+// Load the gitignored repo-root .env (KEY=value lines) if present. Existing
+// process env wins; values are never logged.
+function loadDotEnv(path) {
+	if (!existsSync(path)) return;
+	for (const line of readFileSync(path, "utf8").split("\n")) {
+		const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+		if (match && !(match[1] in process.env)) process.env[match[1]] = match[2];
+	}
+}
+loadDotEnv(resolve(packageRoot, ".env"));
 
 // The preregistered spec-verification directive (spec-verification-append.md,
 // 2026-08-24). Applied ONLY to the improved arm via --arm both.
