@@ -23,6 +23,7 @@ import {
 	createEditTool,
 	createFindTool,
 	createGrepTool,
+	createLspTool,
 	createLsTool,
 	createReadOnlyTools,
 	createReadTool,
@@ -126,6 +127,7 @@ export {
 	createGrepTool,
 	createAstGrepTool,
 	createFindTool,
+	createLspTool,
 	createLsTool,
 };
 
@@ -253,7 +255,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		thinkingLevel = clampThinkingLevel(model, thinkingLevel) as ThinkingLevel;
 	}
 
-	const defaultActiveToolNames: ToolName[] = ["read", "bash", "edit", "write", "ast_grep"];
+	const defaultActiveToolNames: ToolName[] = ["read", "bash", "edit", "write", "ast_grep", "lsp"];
 	const configuredDefaultToolNames = settingsManager.getDefaultTools();
 	const allowedToolNames = options.tools ?? (options.noTools === "all" ? [] : undefined);
 	const excludedToolNames = options.excludeTools;

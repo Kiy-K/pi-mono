@@ -48,6 +48,13 @@ export {
 	type LsToolOptions,
 } from "./ls.ts";
 export {
+	createLspTool,
+	createLspToolDefinition,
+	type LspToolDetails,
+	type LspToolInput,
+	lspToolSystemPromptContribution,
+} from "./lsp.ts";
+export {
 	createReadTool,
 	createReadToolDefinition,
 	type ReadOperations,
@@ -81,13 +88,24 @@ import { createEditTool, createEditToolDefinition, type EditToolOptions } from "
 import { createFindTool, createFindToolDefinition, type FindToolOptions } from "./find.ts";
 import { createGrepTool, createGrepToolDefinition, type GrepToolOptions } from "./grep.ts";
 import { createLsTool, createLsToolDefinition, type LsToolOptions } from "./ls.ts";
+import { createLspTool, createLspToolDefinition } from "./lsp.ts";
 import { createReadTool, createReadToolDefinition, type ReadToolOptions } from "./read.ts";
 import { createWriteTool, createWriteToolDefinition, type WriteToolOptions } from "./write.ts";
 
 export type Tool = AgentTool<any>;
 export type ToolDef = ToolDefinition<any, any>;
-export type ToolName = "read" | "bash" | "edit" | "write" | "grep" | "find" | "ls" | "ast_grep";
-export const allToolNames: Set<ToolName> = new Set(["read", "bash", "edit", "write", "grep", "find", "ls", "ast_grep"]);
+export type ToolName = "read" | "bash" | "edit" | "write" | "grep" | "find" | "ls" | "ast_grep" | "lsp";
+export const allToolNames: Set<ToolName> = new Set([
+	"read",
+	"bash",
+	"edit",
+	"write",
+	"grep",
+	"find",
+	"ls",
+	"ast_grep",
+	"lsp",
+]);
 
 export interface ToolsOptions {
 	read?: ReadToolOptions;
@@ -113,6 +131,8 @@ export function createToolDefinition(toolName: ToolName, cwd: string, options?: 
 			return createGrepToolDefinition(cwd, options?.grep);
 		case "ast_grep":
 			return createAstGrepToolDefinition(cwd);
+		case "lsp":
+			return createLspToolDefinition(cwd);
 		case "find":
 			return createFindToolDefinition(cwd, options?.find);
 		case "ls":
@@ -136,6 +156,8 @@ export function createTool(toolName: ToolName, cwd: string, options?: ToolsOptio
 			return createGrepTool(cwd, options?.grep);
 		case "ast_grep":
 			return createAstGrepTool(cwd);
+		case "lsp":
+			return createLspTool(cwd);
 		case "find":
 			return createFindTool(cwd, options?.find);
 		case "ls":
@@ -161,6 +183,7 @@ export function createReadOnlyToolDefinitions(cwd: string, options?: ToolsOption
 		createFindToolDefinition(cwd, options?.find),
 		createLsToolDefinition(cwd, options?.ls),
 		createAstGrepToolDefinition(cwd),
+		createLspToolDefinition(cwd),
 	];
 }
 
@@ -174,6 +197,7 @@ export function createAllToolDefinitions(cwd: string, options?: ToolsOptions): R
 		find: createFindToolDefinition(cwd, options?.find),
 		ls: createLsToolDefinition(cwd, options?.ls),
 		ast_grep: createAstGrepToolDefinition(cwd),
+		lsp: createLspToolDefinition(cwd),
 	};
 }
 
@@ -193,6 +217,7 @@ export function createReadOnlyTools(cwd: string, options?: ToolsOptions): Tool[]
 		createFindTool(cwd, options?.find),
 		createLsTool(cwd, options?.ls),
 		createAstGrepTool(cwd),
+		createLspTool(cwd),
 	];
 }
 
@@ -206,5 +231,6 @@ export function createAllTools(cwd: string, options?: ToolsOptions): Record<Tool
 		find: createFindTool(cwd, options?.find),
 		ls: createLsTool(cwd, options?.ls),
 		ast_grep: createAstGrepTool(cwd),
+		lsp: createLspTool(cwd),
 	};
 }

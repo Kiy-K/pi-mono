@@ -11,6 +11,7 @@ import {
 	createEditTool,
 	createFindTool,
 	createGrepTool,
+	createLspTool,
 	createLsTool,
 	createReadTool,
 	createWriteTool,
@@ -26,6 +27,9 @@ const astGrepTool = createAstGrepTool(process.cwd());
 const findTool = createFindTool(process.cwd());
 const lsTool = createLsTool(process.cwd());
 
+import { formatDiagnosticLine, resolveSymbolPosition } from "../src/core/tools/lsp.ts";
+
+const lspTool = createLspTool(process.cwd());
 // Helper to extract text from content blocks
 function getTextOutput(result: any): string {
 	return (
@@ -862,6 +866,183 @@ describe("Coding Agent Tools", () => {
 		});
 	});
 
+	describe("lsp tool", () => {
+		const MOCK_BIN_DIR = join(tmpdir(), `lsp-mock-bin-${process.pid}`);
+
+		function writeMockServer(): string {
+			mkdirSync(MOCK_BIN_DIR, { recursive: true });
+			const script = join(MOCK_BIN_DIR, "typescript-language-server");
+			writeFileSync(
+				script,
+				`#!/usr/bin/env node
+let buf = Buffer.alloc(0);
+function send(msg) {
+	const body = JSON.stringify(msg);
+	process.stdout.write("Content-Length: " + Buffer.byteLength(body) + "\\r\\n\\r\\n" + body);
+}
+function handle(msg) {
+	if (msg.id !== undefined && msg.method === "initialize") {
+		send({ jsonrpc: "2.0", id: msg.id, result: { capabilities: {} } });
+	} else if (msg.id !== undefined && msg.method === "shutdown") {
+		send({ jsonrpc: "2.0", id: msg.id, result: null });
+	} else if (msg.method === "exit") {
+		process.exit(0);
+	} else if (msg.method === "textDocument/didOpen") {
+		setTimeout(() => send({ jsonrpc: "2.0", method: "textDocument/publishDiagnostics", params: {
+			uri: msg.params.textDocument.uri,
+			diagnostics: [
+				{ range: { start: { line: 0, character: 6 } }, severity: 1, message: "cannot find name 'gret'" },
+				{ range: { start: { line: 1, character: 2 } }, severity: 2, message: "unused expression" },
+			],
+		} }), 50);
+	} else if (msg.method === "textDocument/definition") {
+		send({ jsonrpc: "2.0", id: msg.id, result: { uri: msg.params.textDocument.uri, range: { start: { line: 2, character: 9 } } } });
+	} else if (msg.method === "textDocument/references") {
+		send({ jsonrpc: "2.0", id: msg.id, result: [
+			{ uri: msg.params.textDocument.uri, range: { start: { line: 2, character: 9 } } },
+			{ uri: msg.params.textDocument.uri, range: { start: { line: 5, character: 4 } } },
+		] });
+	}
+}
+process.stdin.on("data", (chunk) => {
+	buf = Buffer.concat([buf, chunk]);
+	for (;;) {
+		const i = buf.indexOf("\\r\\n\\r\\n");
+		if (i < 0) return;
+		const len = Number(/Content-Length: (\\d+)/i.exec(buf.subarray(0, i).toString())[1]);
+		if (buf.length < i + 4 + len) return;
+		handle(JSON.parse(buf.subarray(i + 4, i + 4 + len).toString()));
+		buf = buf.subarray(i + 4 + len);
+	}
+});
+`,
+			);
+			chmodSync(script, 0o755);
+			return MOCK_BIN_DIR;
+		}
+
+		function useMockServerPath(): string | undefined {
+			const original = process.env.PATH;
+			writeMockServer();
+			process.env.PATH = `${MOCK_BIN_DIR}:${original ?? ""}`;
+			return original;
+		}
+
+		it("resolves symbol positions for pure helpers", () => {
+			const content = "const alpha = 1;\nfunction beta() {\n\treturn alpha;\n}\n";
+			expect(resolveSymbolPosition(content, "alpha")).toEqual({ line: 0, character: 6 });
+			expect(resolveSymbolPosition(content, "alpha", 3)).toEqual({ line: 2, character: 8 });
+			expect(resolveSymbolPosition(content, undefined, 1)).toEqual({ line: 0, character: 0 });
+			expect(() => resolveSymbolPosition(content, "missing")).toThrow(/not found/);
+			expect(() => resolveSymbolPosition(content, undefined, 99)).toThrow(/beyond end of file/);
+			expect(() => resolveSymbolPosition(content, undefined)).toThrow(/Provide 'symbol' or 'line'/);
+		});
+
+		it("formats diagnostic lines", () => {
+			expect(
+				formatDiagnosticLine("/tmp/a.ts", {
+					range: { start: { line: 3, character: 9 } },
+					severity: 1,
+					message: "boom",
+				}),
+			).toBe("/tmp/a.ts:4:10 error boom");
+		});
+
+		it("returns definition via a mock language server", async () => {
+			const originalPath = useMockServerPath();
+			try {
+				const testFile = join(testDir, "sample.ts");
+				writeFileSync(testFile, "const one = 1;\nconst two = one;\nfunction greet() {}\ngreet();\n");
+
+				const result = await lspTool.execute("test-call-lsp-1", {
+					action: "definition",
+					file: testFile,
+					symbol: "greet",
+				});
+				const output = getTextOutput(result);
+				expect(output).toContain(`${testFile}:3: function greet() {}`);
+			} finally {
+				process.env.PATH = originalPath;
+				rmSync(MOCK_BIN_DIR, { recursive: true, force: true });
+			}
+		});
+
+		it("lists references via a mock language server", async () => {
+			const originalPath = useMockServerPath();
+			try {
+				const testFile = join(testDir, "sample.ts");
+				writeFileSync(
+					testFile,
+					"const one = 1;\nconst two = one;\nfunction greet() {}\ngreet();\n\n    greet();\n",
+				);
+
+				const result = await lspTool.execute("test-call-lsp-2", {
+					action: "references",
+					file: testFile,
+					symbol: "greet",
+				});
+				const output = getTextOutput(result);
+				expect(output).toContain(`${testFile}:3: function greet() {}`);
+				expect(output).toContain(`${testFile}:6:`);
+			} finally {
+				process.env.PATH = originalPath;
+				rmSync(MOCK_BIN_DIR, { recursive: true, force: true });
+			}
+		});
+
+		it("reports diagnostics via a mock language server", async () => {
+			const originalPath = useMockServerPath();
+			try {
+				const testFile = join(testDir, "broken.ts");
+				writeFileSync(testFile, "const x = gret;\n  x + 1;\n");
+
+				const result = await lspTool.execute("test-call-lsp-3", { action: "diagnostics", file: testFile });
+				const output = getTextOutput(result);
+				expect(output).toContain(`${testFile}:1:7 error cannot find name 'gret'`);
+				expect(output).toContain(`${testFile}:2:3 warning unused expression`);
+			} finally {
+				process.env.PATH = originalPath;
+				rmSync(MOCK_BIN_DIR, { recursive: true, force: true });
+			}
+		});
+
+		it("names the missing server binary and file type", async () => {
+			const originalPath = process.env.PATH;
+			try {
+				process.env.PATH = MOCK_BIN_DIR; // does not exist -> no servers on PATH
+				const testFile = join(testDir, "module.py");
+				writeFileSync(testFile, "value = 1\n");
+				await expect(lspTool.execute("test-call-lsp-4", { action: "diagnostics", file: testFile })).rejects.toThrow(
+					/pyright-langserver.*Python/,
+				);
+			} finally {
+				process.env.PATH = originalPath;
+			}
+		});
+
+		it("rejects unsupported file types", async () => {
+			const testFile = join(testDir, "notes.xyz");
+			writeFileSync(testFile, "hello\n");
+			await expect(lspTool.execute("test-call-lsp-5", { action: "diagnostics", file: testFile })).rejects.toThrow(
+				/No language server configured/,
+			);
+		});
+
+		// Skipped by default: requires a working rust-analyzer on PATH.
+		// Enable by removing `.skip` when rust-analyzer is installed.
+		it.skip("integration: finds references with rust-analyzer", async () => {
+			const testFile = join(testDir, "lib.rs");
+			writeFileSync(testFile, "pub fn target_fn() {}\npub fn caller() { target_fn(); }\n");
+			const result = await lspTool.execute("test-call-lsp-int", {
+				action: "references",
+				file: testFile,
+				symbol: "target_fn",
+			});
+			const output = getTextOutput(result);
+			expect(output).toContain("lib.rs:1:");
+			expect(output).toContain("lib.rs:2:");
+		});
+	});
 	describe("find tool", () => {
 		it("should include hidden files that are not gitignored", async () => {
 			const hiddenDir = join(testDir, ".secret");
