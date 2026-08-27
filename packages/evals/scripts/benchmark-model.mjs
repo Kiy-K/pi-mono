@@ -138,11 +138,10 @@ async function main() {
 			commit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: repository }).toString().trim(),
 			launcher: join(repository, "pi-test.sh"),
 		},
-		modelIdentity:
-			"opencode/x-preview-f-free per pi's opencode catalog (openai-completions, https://opencode.ai/zen); " +
-			"user-declared 'Ox Alpha Free from OpenCode Zen'; this session's harness reports opencode-zen/x-preview-f-free " +
-			"as the serving model for ox-alpha. Zen catalog listing returned 403 (model-scoped key), so identity rests on " +
-			"the session harness string + catalog entry, not a live catalog query.",
+		modelIdentity: `${options.model} per pi's opencode catalog (requested model ${options.model}); ` +
+			`user-declared harness reports ${options.model} as serving model. ` +
+			`Zen catalog listing returned 403 (model-scoped key) for x-preview-f-free, so prior identity rested on ` +
+			`session harness string + catalog entry, not a live catalog query; now pinned to requested model.`,
 		evaluator: {
 			verifiers: tasks.map((t) => ({
 				task: t.id,
